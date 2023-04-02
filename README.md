@@ -2,6 +2,8 @@
 Raspberry Pi 3B+, 4 상에서 작동하는 백엔드입니다.
 
 ## Getting Started
+0. sudo raspi-config를 실행하고, Locale(ko_KR.UTF-8), Timezone(Asia/Seoul) 설정을 진행합니다.
+
 1. 아래 링크를 따라 라즈베리파이 설정을 진행합니다.
 https://github.com/nexmonster/nexmon_csi/tree/pi-5.10.92#getting-started
 
