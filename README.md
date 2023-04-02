@@ -12,6 +12,15 @@ sudo apt-mark hold libraspberrypi-bin libraspberrypi-dev libraspberrypi-doc libr
 sudo apt-mark hold raspberrypi-bootloader raspberrypi-kernel raspberrypi-kernel-headers
 ```
 
+3. docker를 설치합니다.
+```
+sudo apt install -y uidmap git
+curl -fsSL https://get.docker.com -o get-docker.sh
+sudo sh get-docker.sh
+dockerd-rootless-setuptool.sh install
+echo "export DOCKER_HOST=unix:///run/user/1000/docker.sock" | sudo tee -a /etc/bash.bashrc
+```
+
 ## 작동 방법
 아래 링크를 참조합니다.
 https://github.com/nexmonster/nexmon_csi/tree/pi-5.10.92#usage
