@@ -1,0 +1,17 @@
+#!/bin/bash
+
+TARGET_INTERFACE="wlan0"
+MONITOR_INTERFACE="mon0"
+MCP_CORE_MASK=1
+MCP_STREAM_MASK=1
+MCP_CHANNEL_BANDWIDTH="149/80"
+MCP=$("mcp" "-C" $MCP_CORE_MASK "-N" $MCP_STREAM_MASK "-c" $MCP_CHANNEL_BANDWIDTH)
+
+if ifconfig "$MONITOR_INTERFACE" > /dev/null 2>&1; then
+    exit 1
+fi
+
+sudo ifconfig $TARGET_INTERFACE up
+sudo nexutil -I$TARGET_INTERFACE -s500 -b -l34 -v$MCP
+sudo iw dev $TARGET_INTERFACE interface add mon0 type monitor
+sudo ip link set $MONITOR_INTERFACE up
