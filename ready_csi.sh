@@ -1,5 +1,8 @@
 #!/bin/bash
 
+mkdir /home/pi/alerter/tmp
+sudo mount -t tmpfs -o size=50M tmpfs /home/pi/alerter/tmp
+
 TARGET_INTERFACE="wlan0"
 MONITOR_INTERFACE="mon0"
 MCP_CORE_MASK=1
