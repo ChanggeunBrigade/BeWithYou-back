@@ -262,7 +262,7 @@ def read_pcap(file_data, bandwidth=0, nsamples_max=0):
         nsamples_max = __find_nsamples_max(pcap_filesize, nsub)
 
     # Preallocating memory
-    timestamps = [[0, 0] for i in range(nsamples_max)]
+    timestamps = [0.0 for i in range(nsamples_max)]
     rssi = bytearray(nsamples_max * 1)
     fctl = bytearray(nsamples_max * 1)
     mac = bytearray(nsamples_max * 6)
@@ -279,14 +279,18 @@ def read_pcap(file_data, bandwidth=0, nsamples_max=0):
     while ptr < pcap_filesize:
         # Read frame header
         # Skip over Eth, IP, UDP
-        timestamps[nsamples][0] = int.from_bytes(
+        timestamp_sec = int.from_bytes(
             file_data[ptr : ptr + 4], byteorder="little", signed=False
         )
-        timestamps[nsamples][1] = int.from_bytes(
+        timestamp_usec = int.from_bytes(
             file_data[ptr + 4 : ptr + 8], byteorder="little", signed=False
         )
+        timestamps[nsamples] = timestamp_sec + timestamp_usec / 1e6
+
         ptr += 8
-        frame_len = int.from_bytes(file_data[ptr : ptr + 4], byteorder="little", signed=False)
+        frame_len = int.from_bytes(
+            file_data[ptr : ptr + 4], byteorder="little", signed=False
+        )
         ptr += 50
 
         # 2 bytes: Magic Bytes               @ 0 - 1
@@ -337,7 +341,3 @@ def read_pcap(file_data, bandwidth=0, nsamples_max=0):
         ),
         bandwidth,
     )
-
-
-if __name__ == "__main__":
-    samples = read_pcap("pcap_files/output-40.pcap")
