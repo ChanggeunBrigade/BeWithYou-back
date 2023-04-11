@@ -23,7 +23,7 @@ while True:
     with open(PCAP_PATH, "rb") as f:
         data = f.read()
 
-    data = read_pcap(data, 20)
+    data = read_pcap(data)
 
     for i in range(data.nsamples):
         timestamp = float(data.get_timestamp(i))
