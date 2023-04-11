@@ -258,6 +258,8 @@ def read_pcap(file_data, bandwidth=0, nsamples_max=0):
     # Number of OFDM sub-carriers
     nsub = int(bandwidth * 3.2)
 
+    pcap_filesize = len(file_data)
+
     if nsamples_max == 0:
         nsamples_max = __find_nsamples_max(pcap_filesize, nsub)
 
