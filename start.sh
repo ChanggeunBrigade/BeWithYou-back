@@ -1,4 +1,4 @@
 docker compose up -d
 sleep 10
-tmux new -s audio -d /home/pi/venv/bin/python audio/audio.py
-tmux new -s tcpdump -d /home/pi/venv/bin/python tcpdump/tcpdump.py
+tmux new -s audio -d python3 audio/audio.py
+tmux new -s tcpdump -d python3 tcpdump/tcpdump.py

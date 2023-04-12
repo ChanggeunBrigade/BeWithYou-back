@@ -1,7 +1,7 @@
 #!/bin/bash
 
-mkdir /home/pi/alerter/tmp
-sudo mount -t tmpfs -o size=50M tmpfs /home/pi/alerter/tmp
+mkdir tmp
+sudo mount -t tmpfs -o size=50M tmpfs tmp
 
 TARGET_INTERFACE="wlan0"
 MONITOR_INTERFACE="mon0"
