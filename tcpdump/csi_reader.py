@@ -7,17 +7,6 @@ Interleaved CSI samples in PCAP files.
 Suitable for bcm43455c0 and bcm4339 chips.
 
 Requires Numpy.
-
-Usage
------
-
-import decoders.interleaved as decoder
-
-samples = decoder.read_pcap('path_to_pcap_file')
-
-Bandwidth is inferred from the pcap file, but
-can also be explicitly set:
-samples = decoder.read_pcap('path_to_pcap_file', bandwidth=40)
 """
 
 __all__ = ["read_pcap"]
