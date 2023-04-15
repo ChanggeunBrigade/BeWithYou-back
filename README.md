@@ -1,20 +1,24 @@
 # BeWithYou-back
+
 Raspberry Pi 3B+, 4 상에서 작동하는 백엔드입니다.
 
 ## Getting Started
+
 0. 아래 링크를 따라 라즈베리파이 설정을 진행합니다.
-https://github.com/nexmonster/nexmon_csi/tree/pi-5.10.92#getting-started
+   https://github.com/nexmonster/nexmon_csi/tree/pi-5.10.92#getting-started
 
 1. sudo raspi-config를 실행하고, Locale(ko_KR.UTF-8), Timezone(Asia/Seoul) 설정을 진행합니다.
 
 2. 아래 명령어를 통해 커널 업데이트를 방지합니다.
-본 프로젝트는 5.10.92 이후 커널에서의 작동을 보장하지 않습니다.
+   본 프로젝트는 5.10.92 이후 커널에서의 작동을 보장하지 않습니다.
+
 ```
 sudo apt-mark hold libraspberrypi-bin libraspberrypi-dev libraspberrypi-doc libraspberrypi0
 sudo apt-mark hold raspberrypi-bootloader raspberrypi-kernel raspberrypi-kernel-headers
 ```
 
 3. docker를 설치합니다.
+
 ```
 sudo apt install -y uidmap git
 curl -fsSL https://get.docker.com -o get-docker.sh
@@ -24,6 +28,7 @@ echo "export DOCKER_HOST=unix:///run/user/1000/docker.sock" | sudo tee -a /etc/b
 ```
 
 ## 작동 방법
+
 아래 링크를 참조합니다.
 https://github.com/nexmonster/nexmon_csi/tree/pi-5.10.92#usage
 
