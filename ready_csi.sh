@@ -12,7 +12,7 @@ MCP=$("mcp" "-C" $MCP_CORE_MASK "-N" $MCP_STREAM_MASK "-c" $MCP_CHANNEL_BANDWIDT
 
 if ifconfig "$MONITOR_INTERFACE" >/dev/null 2>&1; then
   echo "이미 인터페이스가 존재함. 재부팅 후 재실행 필요."
-  exit 1
+  exit 0
 fi
 
 sudo ifconfig $TARGET_INTERFACE up
