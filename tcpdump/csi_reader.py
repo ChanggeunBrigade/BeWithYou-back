@@ -11,7 +11,6 @@ Requires Numpy.
 
 __all__ = ["read_pcap"]
 
-import os
 import numpy as np
 
 # Indexes of Null and Pilot OFDM subcarriers
@@ -19,10 +18,7 @@ import numpy as np
 nulls = {
     20: [x + 32 for x in [-32, -31, -30, -29, 31, 30, 29, 0]],
     40: [x + 64 for x in [-64, -63, -62, -61, -60, -59, -1, 63, 62, 61, 60, 59, 1, 0]],
-    80: [
-        x + 128
-        for x in [-128, -127, -126, -125, -124, -123, -1, 127, 126, 125, 124, 123, 1, 0]
-    ],
+    80: [x + 128 for x in [-128, -127, -126, -125, -124, -123, -1, 127, 126, 125, 124, 123, 1, 0]],
     160: [
         x + 256
         for x in [
@@ -119,9 +115,7 @@ class SampleSet(object):
         return self.mac[index * 6 : (index + 1) * 6]
 
     def get_seq(self, index):
-        sc = int.from_bytes(  # uint16: SC
-            self.seq[index * 2 : (index + 1) * 2], byteorder="little", signed=False
-        )
+        sc = int.from_bytes(self.seq[index * 2 : (index + 1) * 2], byteorder="little", signed=False)  # uint16: SC
         fn = sc % 16  # Fragment Number
         sc = int((sc - fn) / 16)  # Sequence Number
 
@@ -237,8 +231,7 @@ def read_pcap(file_data, bandwidth=0, nsamples_max=0):
     """
 
     if bandwidth == 0:
-        bandwidth = __find_bandwidth(
-            # 32-36 is where the incl_len
+        bandwidth = __find_bandwidth(  # 32-36 is where the incl_len
             # bytes for the first frame are
             # located.
             # https://wiki.wireshark.org/Development/LibpcapFileFormat/
@@ -270,18 +263,12 @@ def read_pcap(file_data, bandwidth=0, nsamples_max=0):
     while ptr < pcap_filesize:
         # Read frame header
         # Skip over Eth, IP, UDP
-        timestamp_sec = int.from_bytes(
-            file_data[ptr : ptr + 4], byteorder="little", signed=False
-        )
-        timestamp_usec = int.from_bytes(
-            file_data[ptr + 4 : ptr + 8], byteorder="little", signed=False
-        )
+        timestamp_sec = int.from_bytes(file_data[ptr : ptr + 4], byteorder="little", signed=False)
+        timestamp_usec = int.from_bytes(file_data[ptr + 4 : ptr + 8], byteorder="little", signed=False)
         timestamps[nsamples] = timestamp_sec + timestamp_usec / 1e6
 
         ptr += 8
-        frame_len = int.from_bytes(
-            file_data[ptr : ptr + 4], byteorder="little", signed=False
-        )
+        frame_len = int.from_bytes(file_data[ptr : ptr + 4], byteorder="little", signed=False)
         ptr += 50
 
         # 2 bytes: Magic Bytes               @ 0 - 1
@@ -299,9 +286,7 @@ def read_pcap(file_data, bandwidth=0, nsamples_max=0):
         mac[nsamples * 6 : (nsamples + 1) * 6] = file_data[ptr + 4 : ptr + 10]
         seq[nsamples * 2 : (nsamples + 1) * 2] = file_data[ptr + 10 : ptr + 12]
         css[nsamples * 2 : (nsamples + 1) * 2] = file_data[ptr + 12 : ptr + 14]
-        csi[nsamples * (nsub * 4) : (nsamples + 1) * (nsub * 4)] = file_data[
-            ptr + 18 : ptr + 18 + nsub * 4
-        ]
+        csi[nsamples * (nsub * 4) : (nsamples + 1) * (nsub * 4)] = file_data[ptr + 18 : ptr + 18 + nsub * 4]
 
         ptr += frame_len - 42
         nsamples += 1
@@ -313,9 +298,7 @@ def read_pcap(file_data, bandwidth=0, nsamples_max=0):
     csi_np = csi_np.reshape((nsamples, nsub * 2))
 
     # Convert csi into complex numbers
-    csi_cmplx = np.fft.fftshift(
-        csi_np[:nsamples, ::2] + 1.0j * csi_np[:nsamples, 1::2], axes=(1,)
-    )
+    csi_cmplx = np.fft.fftshift(csi_np[:nsamples, ::2] + 1.0j * csi_np[:nsamples, 1::2], axes=(1,))
 
     # Convert RSSI to Two's complement form
     rssi = np.frombuffer(rssi, dtype=np.int8, count=nsamples)
