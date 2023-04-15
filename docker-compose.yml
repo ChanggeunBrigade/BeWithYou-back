@@ -17,6 +17,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
   fluent:
     image: fluent/fluent-bit
     volumes:
@@ -29,3 +30,4 @@ services:
     environment:
       PSQL_USER: "${PSQL_USER}"
       PSQL_PASS: "${PSQL_PASS}"
+    restart: unless-stopped
