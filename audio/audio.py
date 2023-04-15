@@ -1,8 +1,8 @@
-import json
 import time
+
 import numpy as np
 import sounddevice as sd
-from fluent import sender
+from fluent import asyncsender as sender
 
 SAMPLE_RATE = 44100  # 샘플링 레이트
 BLOCK_DURATION = 1.0  # 블록 단위 시간 (초)
@@ -10,11 +10,12 @@ FLUENT_BIT_HOST = "localhost"  # Fluent Bit 서버의 IP 주소 또는 호스트
 FLUENT_BIT_PORT = 30000  # Fluent Bit 서버의 포트
 
 logger = sender.FluentSender(
-    "audio", host=FLUENT_BIT_HOST, port=FLUENT_BIT_PORT, nanosecond_precision=True
+    "audio", host=FLUENT_BIT_HOST, port=FLUENT_BIT_PORT, nanosecond_precision=True, queue_maxsize=1000,
+    queue_circular=True
 )
 
 
-def send_data_to_fluent_bit(data, host, port):
+def send_data_to_fluent_bit(data):
     for item in data:
         timestamp, value = item
         logger.emit_with_time("data", timestamp, {"data": float(value)})
@@ -39,23 +40,23 @@ def process_audio_with_timestamps(audio_data, sample_rate):
 
 
 def record_and_process_audio_continuous(callback, sample_rate, block_duration):
-    def callback_wrapper(indata, frames, time, status):
+    def callback_wrapper(indata, _frames, _time, _status):
         timestamped_data = process_audio_with_timestamps(indata, sample_rate)
         callback(timestamped_data)
 
     block_size = int(sample_rate * block_duration)
     with sd.InputStream(
-        samplerate=sample_rate,
-        channels=1,
-        blocksize=block_size,
-        callback=callback_wrapper,
+            samplerate=sample_rate,
+            channels=1,
+            blocksize=block_size,
+            callback=callback_wrapper,
     ):
         while True:
             sd.sleep(int(block_duration * 1000))
 
 
 def send_data_callback(timestamped_data):
-    send_data_to_fluent_bit(timestamped_data, FLUENT_BIT_HOST, FLUENT_BIT_PORT)
+    send_data_to_fluent_bit(timestamped_data)
 
 
 record_and_process_audio_continuous(send_data_callback, SAMPLE_RATE, BLOCK_DURATION)
