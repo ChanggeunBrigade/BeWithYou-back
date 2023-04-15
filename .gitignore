@@ -1,2 +1,4 @@
 security.conf
 .env
+.idea
+venv
