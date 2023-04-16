@@ -19,3 +19,4 @@ sudo ifconfig $TARGET_INTERFACE up
 sudo nexutil -I$TARGET_INTERFACE -s500 -b -l34 -v$MCP
 sudo iw dev $TARGET_INTERFACE interface add mon0 type monitor
 sudo ip link set $MONITOR_INTERFACE up
+sudo tmux new -s docker docker compose up
