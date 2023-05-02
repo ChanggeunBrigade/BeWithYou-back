@@ -2,4 +2,7 @@
 .idea
 venv
 __pycache__
-.vscode
+.vscode!/pyproject.toml
+
+poetry.lock
+pyproject.toml
