@@ -28,5 +28,8 @@ while True:
     if not ret:
         break
 
-    data = base64.b64encode(cv2.imencode(".webp", frame, [cv2.IMWRITE_WEBP_QUALITY, 100])[1])
+    data = base64.b64encode(
+        cv2.imencode(".webp", frame, [cv2.IMWRITE_WEBP_QUALITY, 100])[1]
+    )
+    print(data)
     sender.emit("data", {"frame": data})

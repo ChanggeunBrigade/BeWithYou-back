@@ -37,6 +37,8 @@ if __name__ == "__main__":
             amplitudes.append(sqrt(imaginary[i] ** 2 + real[i] ** 2))
             phases.append(atan2(imaginary[i], real[i]))
 
-        logger.emit_with_time(
-            "data", time.time(), {"amplitudes": amplitudes, "phases": phases}
-        )
+        data = {"amplitudes": amplitudes, "phases": phases}
+
+        # sys.stdout.write("{}\n".format(data))
+
+        logger.emit_with_time("data", time.time(), data)
