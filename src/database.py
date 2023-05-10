@@ -19,3 +19,12 @@ class Database(metaclass=SingletonMeta):
             cursor.execute("select * from {}".format(table_name))
             data = cursor.fetchall()
         return data
+
+    def insert_label(self, ts, value):
+        cursor: psycopg2.extensions.cursor = self.conn.cursor()
+        cursor.execute(
+            "insert into label (time, label) values (%s, %s) on conflict (time) do update set label = %s",
+            (ts, value, value),
+        )
+        self.conn.commit()
+        cursor.close()
