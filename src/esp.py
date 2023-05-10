@@ -1,8 +1,8 @@
-import serial
-import sys
-import gpiozero
-import time
 import subprocess
+import time
+
+import gpiozero
+import serial
 
 ping = subprocess.Popen(
     ["ping", "inc.sungkyul.ac.kr"], stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT
@@ -20,7 +20,6 @@ try:
     con.write(b"8\r\n")
 except:
     pass
-
 
 while True:
     try:

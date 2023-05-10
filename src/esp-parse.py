@@ -1,8 +1,9 @@
-import sys
 import re
-from math import sqrt, atan2
-from fluent import sender
+import sys
 import time
+from math import sqrt, atan2
+
+from fluent import sender
 
 logger = sender.FluentSender(
     "tcpdump", host="localhost", port=30000, nanosecond_precision=True

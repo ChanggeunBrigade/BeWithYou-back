@@ -10,8 +10,12 @@ FLUENT_BIT_HOST = "localhost"  # Fluent Bit 서버의 IP 주소 또는 호스트
 FLUENT_BIT_PORT = 30000  # Fluent Bit 서버의 포트
 
 logger = sender.FluentSender(
-    "audio", host=FLUENT_BIT_HOST, port=FLUENT_BIT_PORT, nanosecond_precision=True, queue_maxsize=1000,
-    queue_circular=True
+    "audio",
+    host=FLUENT_BIT_HOST,
+    port=FLUENT_BIT_PORT,
+    nanosecond_precision=True,
+    queue_maxsize=1000,
+    queue_circular=True,
 )
 
 
@@ -46,10 +50,10 @@ def record_and_process_audio_continuous(callback, sample_rate, block_duration):
 
     block_size = int(sample_rate * block_duration)
     with sd.InputStream(
-            samplerate=sample_rate,
-            channels=1,
-            blocksize=block_size,
-            callback=callback_wrapper,
+        samplerate=sample_rate,
+        channels=1,
+        blocksize=block_size,
+        callback=callback_wrapper,
     ):
         while True:
             sd.sleep(int(block_duration * 1000))
