@@ -1,24 +1,49 @@
-import numpy as np
 import torch.nn as nn
-import torch.nn.functional as F
+import torch.optim
+from torch.utils.data import random_split
+
+import src.dataload
 
 
 class Net(nn.Module):
-    def __init__(self, input_size, output_size):
+    def __init__(self):
         super(Net, self).__init__()
-        self.input_size = input_size
-        self.output_size = output_size
-        self.lstm = nn.LSTM()
+        self.cnn = nn.Conv1d(1, 10, kernel_size=3)
+        self.lstm = nn.LSTM(10, 20, 3, batch_first=True)
+        self.fc = nn.Linear(20, 2)
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = self.fc2(x)
+        x = self.cnn(x)
+        x = self.lstm(x)
+        x = x[:, -1, :]
+        x = self.fc(x)
         return x
 
 
 # 데이터셋 로딩 모듈
 def load_dataset():
-    xy = np.loadtxt("diabetes.csv.gz", delimiter=",", dtype=np.float32)
-    x_data = xy[:, 0:-1]
-    y_data = xy[:, [-1]]
-    return x_data, y_data
+    dataset = src.dataload.DataSet()
+    train_dataset, test_dataset = random_split(dataset, [80, 20])
+
+    return train_dataset, test_dataset
+
+
+if __name__ == "__main__":
+    model = Net()
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.NAdam(model.parameters())
+
+    train_data, test_data = load_dataset()
+
+    for epoch in range(1000000):
+        for i, (data, target) in enumerate(train_data):
+            output = model(data)
+            loss = criterion(output, target)
+
+            optimizer.zero_grad()
+            loss.backward()
+
+            optimizer.step()
+
+        accuracy = model.evaluate(test_data)
+        print("Epoch {}: Accuracy {:.2f}%".format(epoch + 1, accuracy * 100))
