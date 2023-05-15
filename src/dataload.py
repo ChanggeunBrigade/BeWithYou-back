@@ -1,7 +1,7 @@
 import pandas as pd
 from torch.utils.data import Dataset
 
-from src import database
+import database
 
 
 class DataSet(Dataset):
@@ -19,31 +19,46 @@ class DataSet(Dataset):
             del row["amplitudes"]
             del row["phases"]
 
+        audio_time = pd.DataFrame([i[1] for i in audio_rows])
         audio_data = pd.DataFrame([i[2] for i in audio_rows])
-        audio_data["ts"] = pd.to_datetime(audio_data["ts"], unit="s")
+        audio_data["ts"] = pd.to_datetime(audio_data["ts"], unit="s") + pd.Timedelta(
+            hours=9
+        )
         audio_data.set_index("ts", inplace=True)
         audio_data = audio_data.resample("10ms").mean().interpolate(limit=500)
 
         csi_data = pd.DataFrame([i[2] for i in csi_rows])
-        csi_data["ts"] = pd.to_datetime(csi_data["ts"], unit="s")
+        csi_data["ts"] = pd.to_datetime(csi_data["ts"], unit="s") + pd.Timedelta(
+            hours=9
+        )
         csi_data.set_index("ts", inplace=True)
         csi_data = csi_data.resample("10ms").mean().interpolate(limit=500)
 
-        self.signal_data: pd.DataFrame = audio_data.join(csi_data)
+        signal_data: pd.DataFrame = (
+            audio_data.join(csi_data).interpolate(limit=500).dropna()
+        )
 
         # how to calculate y data? camera based labeling...
         # 카메라 라벨링을 수행할때는 interpolate나 mean은 쓰지 말고 ffill과 bfill만 사용해야 함. 0, 1 분류 데이터이기 때문
         label_rows = self.db.get_table_data("label")
-        self.label: pd.DataFrame = pd.DataFrame(label_rows, columns=["time", "label"])
-        self.label.set_index("time", inplace=True)
-        self.label = self.label.resample("10ms").fillna(method="ffill", limit=500).fillna(method="bfill", limit=500)
+        label: pd.DataFrame = pd.DataFrame(label_rows, columns=["time", "label"])
+
+        label.set_index("time", inplace=True)
+        label = (
+            label.resample("10ms")
+            .fillna(method="ffill", limit=500)
+            .fillna(method="bfill", limit=500)
+        )
+
+        self.data = signal_data.join(label).dropna()
 
     def __len__(self):
-        return len(self.signal_data)
+        return len(self.data)
 
     def __getitem__(self, item):
-        return self.signal_data[item], self.label[item]
+        return self.data[item, ~self.data.isin(["label"])], self.label[item, ["label"]]
 
 
 if __name__ == "__main__":
     dataset = DataSet()
+    breakpoint()
