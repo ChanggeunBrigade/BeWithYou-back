@@ -2,7 +2,7 @@ import torch.nn as nn
 import torch.optim
 from torch.utils.data import random_split
 
-import src.dataload
+import dataload
 
 
 class Net(nn.Module):
@@ -22,7 +22,7 @@ class Net(nn.Module):
 
 # 데이터셋 로딩 모듈
 def load_dataset():
-    dataset = src.dataload.DataSet()
+    dataset = dataload.DataSet()
     train_dataset, test_dataset = random_split(dataset, [80, 20])
 
     return train_dataset, test_dataset

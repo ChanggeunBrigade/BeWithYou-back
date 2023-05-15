@@ -1,7 +1,8 @@
-from flask import jsonify
+from flask import Flask, jsonify
 
 import database
-from settings import app
+
+app = Flask(__name__)
 
 db = database.Database()
 

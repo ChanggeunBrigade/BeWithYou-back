@@ -1,7 +1,7 @@
 import psycopg2
 import psycopg2.extensions
 
-from src.settings import config, SingletonMeta
+from settings import config, SingletonMeta
 
 
 class Database(metaclass=SingletonMeta):
@@ -13,6 +13,9 @@ class Database(metaclass=SingletonMeta):
             user=config["PSQL_USER"],
             password=config["PSQL_PASS"],
         )
+
+    def __del__(self):
+        self.conn.close()
 
     def get_table_data(self, table_name: str) -> list:
         with self.conn.cursor() as cursor:
