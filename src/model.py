@@ -7,7 +7,10 @@ import dataload
 
 torch.manual_seed(42)
 
-cuda0 = torch.device("cuda:0")
+if torch.cuda.is_available():
+    device = torch.device("cuda:0")
+else:
+    device = torch.device("cpu")
 
 
 class Net(nn.Module):
@@ -60,8 +63,8 @@ def train():
         model.module.train()
         for i, (x, y) in enumerate(train_loader):
             x = x.float()
-            x = x.to(cuda0)
-            y = y.to(cuda0)
+            x = x.to(device)
+            y = y.to(device)
             y = y.unsqueeze(0).T
 
             optimizer.zero_grad()
@@ -86,7 +89,7 @@ def train():
         correct = 0
         with torch.no_grad():
             for x, y in test_loader:
-                x, y = x.to(cuda0), y.to(cuda0)
+                x, y = x.to(device), y.to(device)
                 y = y.unsqueeze(0).T
                 output = model(x)
                 test_loss += criterion(output, y).item()
@@ -117,7 +120,7 @@ def train():
 
 def evaluate():
     model = Net()
-    model.load_state_dict(torch.load("./model.pt"))
+    model.load_state_dict(torch.load("./model.pt", map_location=torch.device('cpu')))
     _, test_data = load_dataset()
     test_loader = DataLoader(test_data, batch_size=32)
     model.eval()
