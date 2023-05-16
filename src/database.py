@@ -15,7 +15,10 @@ class Database(metaclass=SingletonMeta):
         )
 
     def __del__(self):
-        self.conn.close()
+        try:
+            self.conn.close()
+        except:
+            pass
 
     def get_table_data(self, table_name: str) -> list:
         with self.conn.cursor() as cursor:

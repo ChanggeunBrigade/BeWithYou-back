@@ -1,5 +1,7 @@
 import pandas as pd
 from torch.utils.data import Dataset
+import torch
+import numpy as np
 
 import database
 
@@ -50,13 +52,33 @@ class DataSet(Dataset):
             .fillna(method="bfill", limit=500)
         )
 
-        self.data = signal_data.join(label).dropna()
+        data = signal_data.join(label).dropna()
+        self.x_data = list(
+            map(
+                lambda x: torch.from_numpy(x.drop("label", axis=1).to_numpy().T).type(
+                    torch.FloatTensor
+                ),
+                filter(
+                    lambda y: y.shape[0] >= 180,
+                    list(data.rolling(window="1800ms", closed="right")),
+                ),
+            )
+        )
+        self.y_data = list(
+            map(
+                lambda x: (x["label"].to_numpy().sum() > 30).astype(np.float32),
+                filter(
+                    lambda y: y.shape[0] >= 180,
+                    list(data.rolling(window="1800ms", closed="right")),
+                ),
+            )
+        )
 
     def __len__(self):
-        return len(self.data)
+        return len(self.x_data)
 
     def __getitem__(self, item):
-        return self.data[item, ~self.data.isin(["label"])], self.label[item, ["label"]]
+        return self.x_data[item], self.y_data[item]
 
 
 if __name__ == "__main__":
