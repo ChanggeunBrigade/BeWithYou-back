@@ -13,7 +13,7 @@ services:
     volumes:
       - ./db/data:/var/lib/postgresql/data
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${PSQL_USER}" ]
+      test: ["CMD-SHELL", "pg_isready -U ${PSQL_USER}"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -31,3 +31,7 @@ services:
       PSQL_USER: "${PSQL_USER}"
       PSQL_PASS: "${PSQL_PASS}"
     restart: unless-stopped
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    ports:
+      - 1883:1883
