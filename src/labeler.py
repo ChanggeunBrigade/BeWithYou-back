@@ -5,10 +5,9 @@ import pickle
 import cv2
 import numpy as np
 
-import src.database
+import database
 
-with open("opencv.pickle", "rb") as f:
-    data = pickle.load(f)
+data = database.Database().get_table_data('opencv')
 
 data.sort(key=lambda x: x[1])
 
