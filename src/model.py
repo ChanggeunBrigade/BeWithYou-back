@@ -119,8 +119,7 @@ def train():
 
 
 def evaluate():
-    model = Net()
-    model.load_state_dict(torch.load("./model.pt", map_location=torch.device('cpu')))
+    model = load_model()
     _, test_data = load_dataset()
     test_loader = DataLoader(test_data, batch_size=32)
     model.eval()
@@ -138,6 +137,12 @@ def evaluate():
 
 def predict(model, data):
     return model(data).round()
+
+
+def load_model(path="./model.pt"):
+    model = Net()
+    model.load_state_dict(torch.load(path, map_location=device))
+    return model
 
 
 if __name__ == "__main__":

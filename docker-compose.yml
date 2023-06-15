@@ -1,37 +1,17 @@
 version: "3.5"
 
 services:
-  timescale:
-    image: timescale/timescaledb:latest-pg15
-    environment:
-      TZ: Asia/Seoul
-      POSTGRES_DB: data
-      POSTGRES_USER: "${PSQL_USER}"
-      POSTGRES_PASSWORD: "${PSQL_PASS}"
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./db/data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PSQL_USER}"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-    restart: unless-stopped
   fluent:
-    image: fluent/fluent-bit
+    image: fluent/fluent-bit:2.1.4-debug
     volumes:
       - ./fluentbit/:/fluent-bit/etc/
     ports:
       - "30000:30000"
-    depends_on:
-      timescale:
-        condition: service_healthy
-    environment:
-      PSQL_USER: "${PSQL_USER}"
-      PSQL_PASS: "${PSQL_PASS}"
-    restart: unless-stopped
+    restart: always
   mosquitto:
     image: eclipse-mosquitto:2.0
+    volumes:
+      - "./mosquitto.conf:/mosquitto/config/mosquitto.conf"
     ports:
       - 1883:1883
+    restart: always
