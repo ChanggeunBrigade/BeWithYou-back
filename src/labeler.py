@@ -1,13 +1,12 @@
 import base64
 import datetime
-import pickle
 
 import cv2
 import numpy as np
 
 import database
 
-data = database.Database().get_table_data('opencv')
+data = database.Database().get_table_data("opencv")
 
 data.sort(key=lambda x: x[1])
 
