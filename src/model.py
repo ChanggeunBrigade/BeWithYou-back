@@ -39,7 +39,7 @@ class Net(nn.Module):
 
     @staticmethod
     def load_dataset():
-        dataset = dataload.DataSet()
+        dataset = dataload.TrainDataset()
         data_size = len(dataset)
         train_size = int(data_size * 0.8)
         test_size = data_size - train_size
