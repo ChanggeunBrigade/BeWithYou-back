@@ -8,7 +8,7 @@ audio = subprocess.Popen(
     stderr=subprocess.STDOUT,
 )
 esp = subprocess.Popen(
-    """cd /home/pi/BeWithYou-back/ && venv/bin/python src/esp.py | venv/bin/python src/esp-parse.py""",
+    """cd /home/pi/BeWithYou-back/ && venv/bin/python src/esp.py""",
     shell=True,
     stdout=subprocess.DEVNULL,
     stderr=subprocess.STDOUT,
