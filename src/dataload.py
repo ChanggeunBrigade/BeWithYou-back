@@ -1,40 +1,43 @@
-import pandas as pd
-from torch.utils.data import Dataset
-import torch
+import asyncio
+
+import nats
 import numpy as np
+import pandas as pd
+import torch
+from torch.utils.data import Dataset
 
 import database
 
 
-class DataSet(Dataset):
+class TrainDataset(Dataset):
     def __init__(self):
         self.db = database.Database()
         audio_rows = self.db.get_table_data("audio")
         csi_rows = self.db.get_table_data("tcpdump")
+        resample_rate = "100ms"
 
-        for i in range(len(csi_rows)):
-            row = csi_rows[i][2]
+        for i, row in enumerate(csi_rows):
+            row2 = row[2]
             for sub in range(64):
-                row[f"amplitudes_{sub}"] = row["amplitudes"][sub]
+                row2[f"amplitudes_{sub}"] = row2["amplitudes"][sub]
             for sub in range(64):
-                row[f"phases_{sub}"] = row["phases"][sub]
-            del row["amplitudes"]
-            del row["phases"]
+                row2[f"phases_{sub}"] = row2["phases"][sub]
+            del row2["amplitudes"]
+            del row2["phases"]
 
-        audio_time = pd.DataFrame([i[1] for i in audio_rows])
         audio_data = pd.DataFrame([i[2] for i in audio_rows])
         audio_data["ts"] = pd.to_datetime(audio_data["ts"], unit="s") + pd.Timedelta(
             hours=9
         )
         audio_data.set_index("ts", inplace=True)
-        audio_data = audio_data.resample("10ms").mean().interpolate(limit=500)
+        audio_data = audio_data.resample(resample_rate).mean().interpolate(limit=500)
 
         csi_data = pd.DataFrame([i[2] for i in csi_rows])
         csi_data["ts"] = pd.to_datetime(csi_data["ts"], unit="s") + pd.Timedelta(
             hours=9
         )
         csi_data.set_index("ts", inplace=True)
-        csi_data = csi_data.resample("10ms").mean().interpolate(limit=500)
+        csi_data = csi_data.resample(resample_rate).mean().interpolate(limit=500)
 
         signal_data: pd.DataFrame = (
             audio_data.join(csi_data).interpolate(limit=500).dropna()
@@ -47,7 +50,7 @@ class DataSet(Dataset):
 
         label.set_index("time", inplace=True)
         label = (
-            label.resample("10ms")
+            label.resample(resample_rate)
             .fillna(method="ffill", limit=500)
             .fillna(method="bfill", limit=500)
         )
@@ -82,5 +85,4 @@ class DataSet(Dataset):
 
 
 if __name__ == "__main__":
-    dataset = DataSet()
-    breakpoint()
+    dataset = TrainDataset()
