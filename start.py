@@ -16,7 +16,7 @@ esp = subprocess.Popen(
 
 try:
     while True:
-        time.sleep(0)
+        time.sleep(1)
 except KeyboardInterrupt:
     audio.terminate()
     esp.terminate()

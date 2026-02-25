@@ -32,7 +32,7 @@ class Net(nn.Module):
         x = self.cnn(x)
         x, _ = self.lstm(x)
         x = self.fc1(x)
-        x = x.squeeze()
+        x = x.squeeze(-1)
         x = self.fc2(x)
         x = self.sigmoid(x)
         return x
@@ -96,8 +96,8 @@ class Net(nn.Module):
                     y = y.unsqueeze(0).T
                     output = model(x)
                     test_loss += criterion(output, y).item()
-                    pred = output.argmax(dim=1, keepdim=True)
-                    correct += pred.eq(y.view_as(pred)).sum().item()
+                    pred = output.round()
+                    correct += pred.eq(y).sum().item()
 
             test_loss /= len(test_loader.dataset)
 
@@ -136,7 +136,9 @@ class Net(nn.Module):
         print("Accuracy: {}".format(correct / total))
 
     def predict(self, data):
-        return self(data).round()
+        with torch.no_grad():
+            data = data.to(device)
+            return self(data).round()
 
     def load_model(self, path="./model.pt"):
         self.load_state_dict(torch.load(path, map_location=device))
