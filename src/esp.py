@@ -1,6 +1,6 @@
+import logging
 import subprocess
 import time
-import sys
 import re
 from math import sqrt, atan2
 
@@ -8,6 +8,9 @@ import gpiozero
 import serial
 
 from fluent import sender
+
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
 logger = sender.FluentSender(
     "tcpdump", host="localhost", port=30000, nanosecond_precision=True
@@ -27,8 +30,8 @@ time.sleep(1)
 
 try:
     con.write(b"8\r\n")
-except:
-    pass
+except serial.SerialException as e:
+    log.warning("시리얼 초기화 실패: %s", e)
 
 while True:
     try:
@@ -37,7 +40,8 @@ while True:
         rst.off()
         ping.kill()
         break
-    except:
+    except (serial.SerialException, UnicodeDecodeError) as e:
+        log.warning("시리얼 읽기 오류: %s", e)
         continue
 
     imaginary = []
@@ -68,8 +72,6 @@ while True:
 
         data = {"amplitudes": amplitudes, "phases": phases}
 
-        # sys.stdout.write("{} {}\n".format(time.time(), data))
-
         logger.emit_with_time("data", time.time(), data)
-    except:
-        pass
+    except (ValueError, IndexError) as e:
+        log.warning("CSI 파싱 오류: %s", e)

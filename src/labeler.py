@@ -31,9 +31,9 @@ while i < len(data):
         cv2.destroyAllWindows()
         break
     if key == ord("a"):
-        src.database.Database().insert_label(row[1], 0)  # 평상시
+        database.Database().insert_label(row[1], 0)  # 평상시
     if key == ord("s"):
-        src.database.Database().insert_label(row[1], 1)  # 낙상
+        database.Database().insert_label(row[1], 1)  # 낙상
     if key == ord("z"):
         i -= 2
     i += 1

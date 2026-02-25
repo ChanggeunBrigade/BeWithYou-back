@@ -1,6 +1,3 @@
-import asyncio
-
-import nats
 import numpy as np
 import pandas as pd
 import torch
@@ -51,8 +48,8 @@ class TrainDataset(Dataset):
         label.set_index("time", inplace=True)
         label = (
             label.resample(resample_rate)
-            .fillna(method="ffill", limit=500)
-            .fillna(method="bfill", limit=500)
+            .ffill(limit=500)
+            .bfill(limit=500)
         )
 
         data = signal_data.join(label).dropna()
