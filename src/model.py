@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import random_split, DataLoader
+from torch.utils.data import DataLoader, random_split
 
 import dataload
 

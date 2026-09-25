@@ -1,12 +1,11 @@
 import logging
+import re
 import subprocess
 import time
-import re
-from math import sqrt, atan2
+from math import atan2, sqrt
 
 import gpiozero
 import serial
-
 from fluent import sender
 
 logging.basicConfig(level=logging.INFO)
