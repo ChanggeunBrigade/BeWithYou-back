@@ -1,0 +1,43 @@
+[project]
+name = "bewithyou-back"
+version = "0.1.0"
+description = "Wi-Fi CSI + 오디오 기반 낙상 감지 백엔드 (Raspberry Pi 4B)"
+readme = "README.md"
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "fluent-logger>=0.11",
+    "kafka-python>=2.0",
+    "numpy>=1.26",
+    "opencv-python>=4.9",
+    "pandas>=2.2",
+    "paho-mqtt>=2.1",
+    "psycopg2-binary>=2.9",
+    "python-dotenv>=1.0",
+    "torch>=2.4",
+]
+
+[project.optional-dependencies]
+# 라즈베리파이에서 센서 수집(esp.py, audio.py)에만 필요한 패키지
+device = [
+    "gpiozero>=2.0",
+    "lgpio>=0.2; platform_machine == 'aarch64'",
+    "pyserial>=3.5",
+    "sounddevice>=0.4",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+src = ["src"]
