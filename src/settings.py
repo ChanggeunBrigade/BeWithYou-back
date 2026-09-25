@@ -12,6 +12,16 @@ config = {**dotenv_values(ROOT / ".env"), **os.environ}
 DB_TIMEZONE = config.get("DB_TIMEZONE", "Asia/Seoul")
 KAFKA_BOOTSTRAP = config.get("KAFKA_BOOTSTRAP", "localhost:9092")
 
+# 낙상 알림을 받을 MQTT 브로커
+MQTT_HOST = config.get("MQTT_HOST", "osm-oracle.kro.kr")
+MQTT_PORT = int(config.get("MQTT_PORT", "7001"))
+MQTT_USER = config.get("MQTT_USER") or None
+MQTT_PASS = config.get("MQTT_PASS") or None
+MQTT_TLS = config.get("MQTT_TLS", "false").lower() in ("1", "true", "yes")
+MQTT_TOPIC = config.get("MQTT_TOPIC", "alert")
+# 낙상 상태가 이어지는 동안 알림을 반복해서 보내지 않도록 하는 최소 간격(초)
+ALERT_COOLDOWN = float(config.get("ALERT_COOLDOWN", "30"))
+
 
 class SingletonMeta(type):
     _instances = {}

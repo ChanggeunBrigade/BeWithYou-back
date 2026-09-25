@@ -19,7 +19,16 @@ from features import (
     resample_csi,
     to_index,
 )
-from settings import KAFKA_BOOTSTRAP
+from settings import (
+    ALERT_COOLDOWN,
+    KAFKA_BOOTSTRAP,
+    MQTT_HOST,
+    MQTT_PASS,
+    MQTT_PORT,
+    MQTT_TLS,
+    MQTT_TOPIC,
+    MQTT_USER,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -84,6 +93,35 @@ class SignalBuffer:
         return window.to_numpy(dtype=np.float32).T.copy()
 
 
+class AlertThrottle:
+    """낙상이 연속으로 감지되어도 cooldown 초에 한 번만 알림을 보낸다."""
+
+    def __init__(self, cooldown: float = ALERT_COOLDOWN):
+        self.cooldown = cooldown
+        self.last_alert: float | None = None
+
+    def should_alert(self, now: float) -> bool:
+        if self.last_alert is not None and now - self.last_alert < self.cooldown:
+            return False
+        self.last_alert = now
+        return True
+
+
+def connect_mqtt() -> mqtt_client.Client:
+    client = mqtt_client.Client(
+        mqtt_client.CallbackAPIVersion.VERSION2,
+        client_id="alerter",
+        protocol=mqtt_client.MQTTv5,
+    )
+    if MQTT_USER:
+        client.username_pw_set(MQTT_USER, MQTT_PASS)
+    if MQTT_TLS:
+        client.tls_set()
+    client.connect(MQTT_HOST, port=MQTT_PORT)
+    client.loop_start()
+    return client
+
+
 def main():
     classifier = model.Net()
     classifier.load_model()
@@ -97,14 +135,8 @@ def main():
         auto_offset_reset="latest",
     )
 
-    alerter = mqtt_client.Client(
-        mqtt_client.CallbackAPIVersion.VERSION2,
-        client_id="alerter",
-        protocol=mqtt_client.MQTTv5,
-    )
-    alerter.connect("osm-oracle.kro.kr", port=7001)
-    alerter.loop_start()
-
+    alerter = connect_mqtt()
+    throttle = AlertThrottle()
     buffer = SignalBuffer()
     last_inference = 0.0
 
@@ -131,8 +163,8 @@ def main():
         except Exception as e:
             logger.error("추론 오류: %s", e)
             continue
-        if predicted.item() == 1:
-            alerter.publish("alert", b"alert")
+        if predicted.item() == 1 and throttle.should_alert(time.monotonic()):
+            alerter.publish(MQTT_TOPIC, b"alert", qos=1)
             logger.info("낙상 감지 알림 전송")
 
 

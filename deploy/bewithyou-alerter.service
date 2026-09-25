@@ -1,0 +1,15 @@
+# 실시간 낙상 추론 및 MQTT 알림(alerter.py)
+[Unit]
+Description=BeWithYou fall alerter
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+User=pi
+WorkingDirectory=/home/pi/BeWithYou-back
+ExecStart=/home/pi/.local/bin/uv run src/alerter.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

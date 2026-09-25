@@ -50,3 +50,12 @@ def test_prune_keeps_recent_data_only():
     fill(buffer, seconds=5.0)
     buffer.prune()
     assert buffer.audio[-1][0] - buffer.audio[0][0] <= 1.0
+
+
+def test_alert_throttle():
+    from alerter import AlertThrottle
+
+    throttle = AlertThrottle(cooldown=30)
+    assert throttle.should_alert(100.0)
+    assert not throttle.should_alert(110.0)
+    assert throttle.should_alert(131.0)

@@ -22,6 +22,19 @@ opencv.py ────┘                         └─ PostgreSQL audio / tcpd
   129채널(오디오 RMS 1 + CSI 진폭 64 + 위상 64) 입력을 만든다.
 - PostgreSQL의 `time` 컬럼은 `DB_TIMEZONE`(기본 `Asia/Seoul`) 기준으로 저장된다.
 
+## 라즈베리파이 배포
+
+`deploy/`의 systemd 유닛으로 수집기(`start.py`)와 알리미(`alerter.py`)를 띄운다.
+두 프로세스 모두 종료되면 자동으로 다시 시작된다 (`start.py`도 자식 프로세스를 재시작).
+
+```bash
+sudo cp deploy/*.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now bewithyou-collector bewithyou-alerter
+```
+
+알림 브로커 주소/계정/TLS, 알림 최소 간격(`ALERT_COOLDOWN`)은 `.env`로 설정한다.
+
 ## 모델 학습
 
 ```bash
