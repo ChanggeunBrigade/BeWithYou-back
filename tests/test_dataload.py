@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 import dataload
+import features
 from features import N_FEATURES, N_SUBCARRIERS, WINDOW_SIZE
 
 START = 1_700_000_000.0
@@ -85,6 +86,21 @@ def test_windows_do_not_span_gaps():
 
     index = pd.date_range("2024-01-01", periods=400, freq="10ms")
     index = index.delete(range(200, 210))  # 100ms 결측
-    starts = dataload.contiguous_window_starts(index, WINDOW_SIZE, stride=1)
+    starts = features.contiguous_window_starts(index, WINDOW_SIZE, stride=1)
     for s in starts:
         assert index[s + WINDOW_SIZE - 1] - index[s] == pd.Timedelta("1790ms")
+
+
+def test_timezone_aware_labels(monkeypatch):
+    tables = make_tables(seconds=5.0, fall_from=3.0)
+    kst = datetime.timezone(datetime.timedelta(hours=9))
+    tables["label"] = [(t.replace(tzinfo=kst), v) for t, v in tables["label"]]
+    monkeypatch.setattr(dataload.database, "Database", lambda: FakeDatabase(tables))
+    dataset = dataload.TrainDataset()
+    assert dataset.y[0] == 0.0 and dataset.y[-1] == 1.0
+
+
+def test_legacy_raw_audio_becomes_rms(make_dataset):
+    dataset = make_dataset(seconds=5.0)
+    # 예전 형식(샘플 하나씩 `data`)도 10ms 구간 RMS로 변환된다: sin 파형이라 0보다 크다
+    assert (dataset.x[0] > 0.1).all()

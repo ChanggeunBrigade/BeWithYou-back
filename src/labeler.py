@@ -35,5 +35,6 @@ while i < len(data):
     if key == ord("s"):
         database.Database().insert_label(row[1], 1)  # 낙상
     if key == ord("z"):
-        i -= 2
+        i = max(i - 1, 0)  # 이전 프레임으로
+        continue
     i += 1

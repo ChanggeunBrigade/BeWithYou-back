@@ -5,62 +5,62 @@ from torch.utils.data import Dataset
 
 import database
 from features import (
-    CSI_COLUMNS,
     FEATURE_COLUMNS,
     INTERPOLATE_LIMIT,
     RESAMPLE_RATE,
     WINDOW_SIZE,
+    audio_record_to_power,
+    build_signal_frame,
+    contiguous_window_starts,
     csi_record_to_row,
+    resample_audio,
+    resample_csi,
 )
+from settings import DB_TIMEZONE
 
 # 윈도우(180스텝) 안에서 낙상 라벨이 이 스텝 수를 넘으면 낙상 윈도우로 본다 (0.3초)
 LABEL_THRESHOLD = 30
 
 
-def to_signal_index(ts: pd.Series) -> pd.DatetimeIndex:
-    return pd.DatetimeIndex(pd.to_datetime(ts, unit="s") + pd.Timedelta(hours=9))
-
-
 def build_audio_frame(audio_rows: list) -> pd.DataFrame:
-    records = [row[2] for row in audio_rows]
-    audio = pd.DataFrame(
-        {"audio": [r["data"] for r in records]},
-        index=to_signal_index(pd.Series([r["ts"] for r in records])),
-    )
-    return audio.sort_index().resample(RESAMPLE_RATE).mean().interpolate(limit=INTERPOLATE_LIMIT)
+    ts, power = [], []
+    for row in audio_rows:
+        value = audio_record_to_power(row[2])
+        if value is None:
+            continue
+        ts.append(row[2]["ts"])
+        power.append(value)
+    return resample_audio(ts, power)
 
 
 def build_csi_frame(csi_rows: list) -> pd.DataFrame:
-    rows, ts = [], []
+    ts, rows = [], []
     for row in csi_rows:
         parsed = csi_record_to_row(row[2])
         if parsed is None:
             continue
-        rows.append(parsed)
         ts.append(row[2]["ts"])
-    csi = pd.DataFrame(rows, columns=CSI_COLUMNS, index=to_signal_index(pd.Series(ts)))
-    return csi.sort_index().resample(RESAMPLE_RATE).mean().interpolate(limit=INTERPOLATE_LIMIT)
+        rows.append(parsed)
+    return resample_csi(ts, rows)
+
+
+def to_utc_naive(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
+    """DB 시각을 신호 데이터와 같은 UTC 기준 naive datetime으로 맞춘다."""
+    if index.tz is None:
+        index = index.tz_localize(DB_TIMEZONE)
+    return index.tz_convert("UTC").tz_localize(None)
 
 
 def build_label_frame(label_rows: list) -> pd.DataFrame:
+    label = pd.DataFrame(label_rows, columns=["time", "label"])
+    label.index = to_utc_naive(pd.DatetimeIndex(label.pop("time")))
     # 0/1 분류 데이터이므로 interpolate나 mean 대신 ffill/bfill만 사용한다
-    label = pd.DataFrame(label_rows, columns=["time", "label"]).set_index("time").sort_index()
     return (
-        label.resample(RESAMPLE_RATE)
+        label.sort_index()
+        .resample(RESAMPLE_RATE)
         .ffill(limit=INTERPOLATE_LIMIT)
         .bfill(limit=INTERPOLATE_LIMIT)
     )
-
-
-def contiguous_window_starts(index: pd.DatetimeIndex, window: int, stride: int) -> np.ndarray:
-    """결측 구간을 건너뛰지 않고 window 스텝이 연속으로 이어지는 윈도우의 시작 위치."""
-    if len(index) < window:
-        return np.array([], dtype=np.int64)
-    step = pd.Timedelta(RESAMPLE_RATE).value
-    t = index.asi8
-    ok = (t[window - 1 :] - t[: len(t) - window + 1]) == (window - 1) * step
-    starts = np.flatnonzero(ok)
-    return starts[starts % stride == 0]
 
 
 class TrainDataset(Dataset):
@@ -70,11 +70,12 @@ class TrainDataset(Dataset):
         """
         self.db = database.Database()
 
-        signal = build_audio_frame(self.db.get_table_data("audio")).join(
-            build_csi_frame(self.db.get_table_data("tcpdump"))
+        signal = build_signal_frame(
+            build_audio_frame(self.db.get_table_data("audio")),
+            build_csi_frame(self.db.get_table_data("tcpdump")),
         )
-        signal = signal.interpolate(limit=INTERPOLATE_LIMIT).dropna()
         data = signal.join(build_label_frame(self.db.get_table_data("label"))).dropna()
+        self.index = data.index
 
         # 윈도우를 미리 잘라 두지 않고 전체 시계열 하나만 들고 있다가 필요할 때 잘라 쓴다
         self.x = torch.from_numpy(data[FEATURE_COLUMNS].to_numpy(dtype=np.float32).T.copy())

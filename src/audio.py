@@ -5,7 +5,8 @@ import sounddevice as sd
 from fluent import asyncsender as sender
 
 SAMPLE_RATE = 44100  # 샘플링 레이트
-BLOCK_DURATION = 1.0  # 블록 단위 시간 (초)
+BLOCK_DURATION = 0.1  # 사운드카드 콜백 단위 시간 (초)
+FEATURE_DURATION = 0.01  # RMS를 계산해 전송하는 단위 시간 (초), features.RESAMPLE_RATE와 같음
 FLUENT_BIT_HOST = "localhost"  # Fluent Bit 서버의 IP 주소 또는 호스트명
 FLUENT_BIT_PORT = 30000  # Fluent Bit 서버의 포트
 
@@ -19,48 +20,35 @@ logger = sender.FluentSender(
 )
 
 
-def send_data_to_fluent_bit(data):
-    for item in data:
-        timestamp, value = item
-        logger.emit_with_time("data", timestamp, {"data": float(value)})
+def block_rms(samples: np.ndarray, sample_rate: int, feature_duration: float) -> np.ndarray:
+    """샘플을 feature_duration 단위로 나눠 각 구간의 RMS를 구한다."""
+    size = int(sample_rate * feature_duration)
+    usable = len(samples) - len(samples) % size
+    chunks = samples[:usable].reshape(-1, size)
+    return np.sqrt(np.mean(np.square(chunks, dtype=np.float64), axis=1))
 
 
-def record_audio(duration, sample_rate):
-    audio_data = sd.rec(int(duration * sample_rate), samplerate=sample_rate, channels=1)
-    sd.wait()
-    return audio_data
+def send_block(indata: np.ndarray, block_end: float):
+    rms = block_rms(indata[:, 0], SAMPLE_RATE, FEATURE_DURATION)
+    block_start = block_end - len(rms) * FEATURE_DURATION
+    for i, value in enumerate(rms):
+        # 파형 샘플 하나하나(초당 44100건) 대신 10ms 구간의 RMS만 보낸다 (초당 100건)
+        logger.emit_with_time("data", block_start + i * FEATURE_DURATION, {"rms": float(value)})
 
 
-def process_audio_with_timestamps(audio_data, sample_rate):
-    num_samples = audio_data.shape[0]
-    timestamps = np.linspace(0, num_samples / sample_rate, num_samples)
-    current_time = time.time()
+def record_and_send_continuous():
+    def callback(indata, _frames, _time, _status):
+        send_block(indata, time.time())
 
-    timestamped_data = []
-    for i in range(num_samples):
-        timestamped_data.append((current_time + timestamps[i], audio_data[i][0]))
-
-    return timestamped_data
-
-
-def record_and_process_audio_continuous(callback, sample_rate, block_duration):
-    def callback_wrapper(indata, _frames, _time, _status):
-        timestamped_data = process_audio_with_timestamps(indata, sample_rate)
-        callback(timestamped_data)
-
-    block_size = int(sample_rate * block_duration)
     with sd.InputStream(
-        samplerate=sample_rate,
+        samplerate=SAMPLE_RATE,
         channels=1,
-        blocksize=block_size,
-        callback=callback_wrapper,
+        blocksize=int(SAMPLE_RATE * BLOCK_DURATION),
+        callback=callback,
     ):
         while True:
-            sd.sleep(int(block_duration * 1000))
+            sd.sleep(1000)
 
 
-def send_data_callback(timestamped_data):
-    send_data_to_fluent_bit(timestamped_data)
-
-
-record_and_process_audio_continuous(send_data_callback, SAMPLE_RATE, BLOCK_DURATION)
+if __name__ == "__main__":
+    record_and_send_continuous()

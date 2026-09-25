@@ -1,42 +1,61 @@
-version: "3.5"
-
 services:
   fluent:
-    image: fluent/fluent-bit:2.1.4-debug
+    image: fluent/fluent-bit:2.1.4
     volumes:
       - ./fluentbit/:/fluent-bit/etc/
     ports:
       - "30000:30000"
+    env_file: .env
+    environment:
+      # 컨테이너 안에서는 compose 네트워크의 postgres 서비스로 접속한다
+      - PSQL_HOST=postgres
+      - PSQL_PORT=5432
     restart: always
     depends_on:
       - kafka
-      - mosquitto
+      - postgres
+
+  postgres:
+    image: postgres:16
+    volumes:
+      - ./db:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=data
+      - POSTGRES_USER=${PSQL_USER}
+      - POSTGRES_PASSWORD=${PSQL_PASS}
+      # pgsql 출력의 time 컬럼이 이 시간대로 저장된다 (settings.DB_TIMEZONE과 같아야 함)
+      - TZ=${DB_TIMEZONE:-Asia/Seoul}
+    restart: always
+
   mosquitto:
     image: eclipse-mosquitto:2.0
     volumes:
       - "./mosquitto.conf:/mosquitto/config/mosquitto.conf"
     ports:
-      - 1883:1883
+      - "1883:1883"
     restart: always
-  zookeeper:
-    image: bitnami/zookeeper
-    ports:
-      - 2181:2181
-    environment:
-      - ALLOW_ANONYMOUS_LOGIN=yes
+
+  # ZooKeeper 없이 KRaft 모드로 동작하는 단일 노드 Kafka
   kafka:
-    image: bitnami/kafka
+    image: apache/kafka:3.9.1
     ports:
-      - 9092:9092
+      - "9092:9092"
     environment:
-      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
-      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
-      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://deeprasp:9092
-      - ALLOW_PLAINTEXT_LISTENER=yes
-    depends_on:
-      - zookeeper
-  ksql:
-    image: bitnami/ksql
-    environment:
-      - KSQL_BOOTSTRAP_SERVERS=deeprasp:9092
-      - KSQL_LISTENERS=http://0.0.0.0:8088
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=broker,controller
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      # INTERNAL: compose 내부(fluent-bit), EXTERNAL: 호스트/다른 PC의 파이썬 프로세스(alerter.py)
+      # 다른 PC에서 접속하려면 .env에 KAFKA_ADVERTISED_HOST=<라즈베리파이 호스트명>(예: deeprasp)
+      - KAFKA_LISTENERS=INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:29092,EXTERNAL://${KAFKA_ADVERTISED_HOST:-localhost}:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+      - KAFKA_LOG_RETENTION_HOURS=24
+    restart: always
