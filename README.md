@@ -35,10 +35,16 @@ sudo systemctl enable --now bewithyou-collector bewithyou-alerter
 
 알림 브로커 주소/계정/TLS, 알림 최소 간격(`ALERT_COOLDOWN`)은 `.env`로 설정한다.
 
+`alerter.py`는 추론하지 않는 경우와 그 이유를 10초마다 한 줄로 모아 로그로 남긴다.
+- 센서 데이터가 3초 넘게 들어오지 않으면 추론하지 않는다 (지난 데이터로 알림을 보내지 않음).
+- Kafka 오프셋을 저장하지 않으므로 재시작하면 항상 최신 데이터부터 읽는다.
+- 서브캐리어 수가 64가 아닌 CSI(ESP32 CSI 설정 불일치)는 버리고 그 건수를 로그로 남긴다.
+
 ## 모델 학습
 
 ```bash
-uv run src/labeler.py        # opencv 프레임에 라벨 부여 (a: 평상시, s: 낙상, z: 이전, q: 종료)
+# opencv 프레임에 라벨 부여 (a: 평상시, s: 낙상, z: 이전, q: 종료)
+uv run src/labeler.py --start "2024-05-01 09:00" --end "2024-05-01 12:00"
 uv run src/model.py train    # 저장소 루트에 model.pt 저장 (GPU가 있으면 사용)
 uv run src/model.py eval     # 평가 구간 accuracy / precision / recall
 ```

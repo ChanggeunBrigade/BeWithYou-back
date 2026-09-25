@@ -24,8 +24,11 @@ FEATURE_COLUMNS = ["audio"] + CSI_COLUMNS
 N_FEATURES = len(FEATURE_COLUMNS)
 
 
-def csi_record_to_row(record: dict) -> dict | None:
-    """esp.py가 보낸 CSI 레코드를 컬럼별 값으로 펼친다. 서브캐리어 수가 맞지 않으면 None."""
+def csi_record_to_values(record: dict) -> np.ndarray | None:
+    """
+    esp.py가 보낸 CSI 레코드를 CSI_COLUMNS 순서(진폭 64 + 위상 64)의 배열로 만든다.
+    서브캐리어 수가 맞지 않으면 None.
+    """
     amplitudes = record.get("amplitudes")
     phases = record.get("phases")
     if (
@@ -35,9 +38,7 @@ def csi_record_to_row(record: dict) -> dict | None:
         or len(phases) != N_SUBCARRIERS
     ):
         return None
-    row = dict(zip(AMPLITUDE_COLUMNS, amplitudes))
-    row.update(zip(PHASE_COLUMNS, phases))
-    return row
+    return np.asarray([*amplitudes, *phases], dtype=np.float32)
 
 
 def audio_record_to_power(record: dict) -> float | None:
@@ -65,8 +66,10 @@ def resample_audio(ts: Sequence[float], power: Sequence[float]) -> pd.DataFrame:
     return frame.interpolate(limit=INTERPOLATE_LIMIT)
 
 
-def resample_csi(ts: Sequence[float], rows: Sequence[dict]) -> pd.DataFrame:
-    frame = pd.DataFrame(list(rows), columns=CSI_COLUMNS, index=to_index(ts), dtype=np.float64)
+def resample_csi(ts: Sequence[float], values: Sequence[np.ndarray]) -> pd.DataFrame:
+    """values: 레코드마다 csi_record_to_values 결과 (또는 (N, 128) 배열)"""
+    values = np.asarray(values, dtype=np.float64).reshape(-1, len(CSI_COLUMNS))
+    frame = pd.DataFrame(values, columns=CSI_COLUMNS, index=to_index(ts))
     return frame.sort_index().resample(RESAMPLE_RATE).mean().interpolate(limit=INTERPOLATE_LIMIT)
 
 

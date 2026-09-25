@@ -9,10 +9,9 @@ from features import (
     INTERPOLATE_LIMIT,
     RESAMPLE_RATE,
     WINDOW_SIZE,
-    audio_record_to_power,
     build_signal_frame,
     contiguous_window_starts,
-    csi_record_to_row,
+    csi_record_to_values,
     resample_audio,
     resample_csi,
 )
@@ -22,26 +21,23 @@ from settings import DB_TIMEZONE
 LABEL_THRESHOLD = 30
 
 
-def build_audio_frame(audio_rows: list) -> pd.DataFrame:
-    ts, power = [], []
-    for row in audio_rows:
-        value = audio_record_to_power(row[2])
-        if value is None:
-            continue
-        ts.append(row[2]["ts"])
-        power.append(value)
-    return resample_audio(ts, power)
+def build_audio_frame(power_rows: list[tuple[int, float]], step: float) -> pd.DataFrame:
+    """Database.get_audio_power 결과(격자 번호, 평균 전력)로 오디오 RMS 채널을 만든다."""
+    buckets = np.array([row[0] for row in power_rows], dtype=np.float64)
+    # 격자 중앙 시각을 써서 부동소수점 오차로 이웃 격자에 들어가는 일이 없게 한다
+    return resample_audio((buckets + 0.5) * step, [row[1] for row in power_rows])
 
 
-def build_csi_frame(csi_rows: list) -> pd.DataFrame:
-    ts, rows = [], []
-    for row in csi_rows:
-        parsed = csi_record_to_row(row[2])
+def build_csi_frame(csi_rows) -> pd.DataFrame:
+    """csi_rows: (ts, amplitudes, phases) 이터레이터"""
+    ts, values = [], []
+    for row_ts, amplitudes, phases in csi_rows:
+        parsed = csi_record_to_values({"amplitudes": amplitudes, "phases": phases})
         if parsed is None:
             continue
-        ts.append(row[2]["ts"])
-        rows.append(parsed)
-    return resample_csi(ts, rows)
+        ts.append(row_ts)
+        values.append(parsed)
+    return resample_csi(ts, values)
 
 
 def to_utc_naive(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
@@ -64,17 +60,21 @@ def build_label_frame(label_rows: list) -> pd.DataFrame:
 
 
 class TrainDataset(Dataset):
-    def __init__(self, stride: int = 10):
+    def __init__(self, start=None, end=None, stride: int = 10):
         """
+        :param start: 학습에 쓸 기간 시작 (DB_TIMEZONE 기준, 예: "2024-05-01 09:00").
+            None이면 처음부터
+        :param end: 학습에 쓸 기간 끝 (포함하지 않음). None이면 끝까지
         :param stride: 윈도우 시작 간격(스텝). 기본 10스텝(100ms)마다 하나의 샘플을 만든다.
         """
         self.db = database.Database()
+        step = pd.Timedelta(RESAMPLE_RATE).total_seconds()
 
         signal = build_signal_frame(
-            build_audio_frame(self.db.get_table_data("audio")),
-            build_csi_frame(self.db.get_table_data("tcpdump")),
+            build_audio_frame(self.db.get_audio_power(step, start, end), step),
+            build_csi_frame(self.db.iter_csi(start, end)),
         )
-        data = signal.join(build_label_frame(self.db.get_table_data("label"))).dropna()
+        data = signal.join(build_label_frame(self.db.get_labels(start, end))).dropna()
         self.index = data.index
 
         # 윈도우를 미리 잘라 두지 않고 전체 시계열 하나만 들고 있다가 필요할 때 잘라 쓴다

@@ -1,4 +1,5 @@
 import datetime
+import math
 
 import numpy as np
 import pytest
@@ -11,11 +12,24 @@ START = 1_700_000_000.0
 
 
 class FakeDatabase:
+    """database.Database와 같은 결과를 내는 메모리 구현 (기간 필터는 무시)"""
+
     def __init__(self, tables):
         self.tables = tables
 
-    def get_table_data(self, table_name):
-        return self.tables[table_name]
+    def get_audio_power(self, step, start=None, end=None):
+        buckets = {}
+        for _, _, record in self.tables["audio"]:
+            bucket = math.floor(record["ts"] / step)
+            buckets.setdefault(bucket, []).append(features.audio_record_to_power(record))
+        return [(bucket, float(np.mean(values))) for bucket, values in sorted(buckets.items())]
+
+    def iter_csi(self, start=None, end=None):
+        for _, _, record in self.tables["tcpdump"]:
+            yield record["ts"], record["amplitudes"], record["phases"]
+
+    def get_labels(self, start=None, end=None):
+        return self.tables["label"]
 
 
 def make_tables(seconds=5.0, fall_from=None):
