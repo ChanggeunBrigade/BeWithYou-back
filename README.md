@@ -28,7 +28,7 @@ opencv.py ────┘                         └─ PostgreSQL audio / tcpd
 두 프로세스 모두 종료되면 자동으로 다시 시작된다 (`start.py`도 자식 프로세스를 재시작).
 
 ```bash
-sudo cp deploy/*.service /etc/systemd/system/
+sudo cp deploy/bewithyou-*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now bewithyou-collector bewithyou-alerter
 ```
@@ -58,9 +58,35 @@ uv run src/model.py eval --start 2024-05-01 --end 2024-06-01
 ## 인프라
 
 ```bash
-cp .env.example .env   # 값 수정
+cp .env.example .env   # 값 수정 (TAILSCALE_IP는 `tailscale ip -4` 결과)
 docker compose up -d   # fluent-bit, kafka(KRaft), postgres, mosquitto
 ```
+
+### 네트워크 접근 제한 (Tailscale)
+
+| 서비스 | 라즈베리파이 안 | 다른 PC (Tailscale) |
+|---|---|---|
+| Fluent Bit | `localhost:30000` | 열지 않음 |
+| PostgreSQL | `localhost:5432` | `<TAILSCALE_IP>:5432` |
+| Kafka | `localhost:9092` | `<TAILSCALE_IP>:9092` |
+| Mosquitto | `localhost:1883` | `<TAILSCALE_IP>:1883` |
+
+- 포트는 `127.0.0.1`과 `TAILSCALE_IP`에만 바인딩되므로 LAN 주소로는 접속할 수 없다.
+- `deploy/tailscale-firewall.sh`는 여기에 더해 `TAILSCALE_IP`로 들어오는 새 연결 중
+  출발지가 Tailscale 대역(`100.64.0.0/10`)이 아닌 것을 `DOCKER-USER` 체인에서 막는다.
+  Docker가 공개한 포트는 ufw 같은 호스트 방화벽(INPUT 체인)을 거치지 않기 때문이다.
+- 재부팅 직후 Tailscale 주소가 생기기 전에 Docker가 먼저 뜨면 바인딩에 실패하므로,
+  아직 없는 주소에도 바인딩할 수 있게 설정해 둔다.
+
+```bash
+echo 'net.ipv4.ip_nonlocal_bind = 1' | sudo tee /etc/sysctl.d/99-bewithyou.conf
+sudo sysctl --system
+sudo cp deploy/tailscale-firewall.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now tailscale-firewall
+```
+
+학습용 PC의 `.env`에는 `PSQL_HOST=<TAILSCALE_IP 또는 MagicDNS 이름>`,
+`KAFKA_BOOTSTRAP=<TAILSCALE_IP>:9092`를 넣는다.
 
 ## 개발 환경
 
