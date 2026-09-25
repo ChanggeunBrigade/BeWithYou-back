@@ -17,10 +17,12 @@ def test_time_split_has_no_overlap(monkeypatch):
     tables = make_tables(seconds=20.0, fall_from=10.0)
     monkeypatch.setattr(dataload.database, "Database", lambda: FakeDatabase(tables))
     dataset = dataload.TrainDataset()
-    train, test, split = model.Net.split_dataset(dataset)
-    assert len(train) > 0 and len(test) > 0
-    assert (dataset.starts[train.indices] + WINDOW_SIZE <= split).all()
-    assert (dataset.starts[test.indices] >= split).all()
+    train, val, test, train_end = model.Net.split_dataset(dataset)
+    assert len(train) > 0 and len(val) > 0 and len(test) > 0
+    assert (dataset.starts[train.indices] + WINDOW_SIZE <= train_end).all()
+    # 구간끼리 윈도우가 겹치지 않는다
+    assert dataset.starts[train.indices].max() + WINDOW_SIZE <= dataset.starts[val.indices].min()
+    assert dataset.starts[val.indices].max() + WINDOW_SIZE <= dataset.starts[test.indices].min()
 
 
 def test_train_saves_loadable_model(monkeypatch, tmp_path):
@@ -29,7 +31,8 @@ def test_train_saves_loadable_model(monkeypatch, tmp_path):
     monkeypatch.setattr(model, "MODEL_PATH", tmp_path / "model.pt")
 
     net = model.Net()
-    net.train_model(max_epochs=1)
+    metrics = net.train_model(max_epochs=1)
+    assert set(metrics) == {"accuracy", "precision", "recall"}
     assert (tmp_path / "model.pt").exists()
 
     loaded = model.Net()

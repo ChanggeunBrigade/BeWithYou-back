@@ -48,26 +48,48 @@ class Net(nn.Module):
         self.std.copy_(x.std(dim=1, keepdim=True).clamp_min(1e-6))
 
     @staticmethod
-    def split_dataset(dataset, test_ratio: float = 0.2):
+    def split_dataset(dataset, val_ratio: float = 0.15, test_ratio: float = 0.15):
         """
-        시간 순서로 앞 80%를 학습, 뒤 20%를 평가에 쓴다.
+        시간 순서로 앞에서부터 학습 / 검증 / 테스트 구간으로 나눈다 (기본 70 / 15 / 15).
 
-        윈도우가 서로 크게 겹치므로 무작위로 나누면 거의 같은 윈도우가 학습/평가에 동시에
-        들어가 정확도가 부풀려진다. 경계에 걸친 윈도우는 어느 쪽에도 넣지 않는다.
+        - 윈도우가 서로 크게 겹치므로 무작위로 나누면 거의 같은 윈도우가 여러 구간에 동시에
+          들어가 성능이 부풀려진다. 구간 경계에 걸친 윈도우는 어느 쪽에도 넣지 않는다.
+        - 검증 구간은 early stopping(모델 선택)에만 쓰고, 최종 성능은 한 번도 모델 선택에
+          쓰지 않은 테스트 구간으로 보고한다.
+
+        :return: (train, val, test) Subset과 학습 구간 끝 위치
         """
-        split = int(dataset.x.shape[1] * (1 - test_ratio))
+        length = dataset.x.shape[1]
+        bounds = [
+            0,
+            int(length * (1 - val_ratio - test_ratio)),
+            int(length * (1 - test_ratio)),
+            length,
+        ]
         starts = dataset.starts
-        train_idx = np.flatnonzero(starts + WINDOW_SIZE <= split)
-        test_idx = np.flatnonzero(starts >= split)
-        return Subset(dataset, train_idx), Subset(dataset, test_idx), split
+        subsets = [
+            Subset(dataset, np.flatnonzero((starts >= lo) & (starts + WINDOW_SIZE <= hi)))
+            for lo, hi in zip(bounds, bounds[1:])
+        ]
+        return *subsets, bounds[1]
 
-    def train_model(self, max_epochs: int = 1000, patience: int = 20, batch_size: int = 32):
-        dataset = dataload.TrainDataset()
-        train_data, test_data, split = self.split_dataset(dataset)
-        if len(train_data) == 0 or len(test_data) == 0:
-            raise RuntimeError("학습/평가 데이터가 부족합니다")
+    def train_model(
+        self,
+        start=None,
+        end=None,
+        max_epochs: int = 1000,
+        patience: int = 20,
+        batch_size: int = 32,
+    ):
+        dataset = dataload.TrainDataset(start, end)
+        train_data, val_data, test_data, train_end = self.split_dataset(dataset)
+        if min(len(train_data), len(val_data), len(test_data)) == 0:
+            raise RuntimeError(
+                f"데이터가 부족합니다 (학습 {len(train_data)}, 검증 {len(val_data)}, "
+                f"테스트 {len(test_data)})"
+            )
 
-        self.set_normalization(dataset.x[:, :split])
+        self.set_normalization(dataset.x[:, :train_end])
         self.to(device)
         model = nn.DataParallel(self) if torch.cuda.device_count() > 1 else self
 
@@ -79,7 +101,7 @@ class Net(nn.Module):
         optimizer = optim.NAdam(model.parameters(), lr=0.001)
 
         train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
-        test_loader = DataLoader(test_data, batch_size=batch_size)
+        val_loader = DataLoader(val_data, batch_size=batch_size)
 
         min_loss = float("inf")
         bad_epochs = 0
@@ -100,11 +122,11 @@ class Net(nn.Module):
                         f"({100 * i / len(train_loader):.0f}%)]\tLoss: {loss.item():.6f}"
                     )
 
-            test_loss, metrics = self.evaluate(test_loader, criterion)
-            print(f"\nTest set: Average Loss: {test_loss:.4f}, {format_metrics(metrics)}\n")
+            val_loss, metrics = self.evaluate(val_loader, criterion)
+            print(f"\nValidation: Average Loss: {val_loss:.4f}, {format_metrics(metrics)}\n")
 
-            if test_loss < min_loss:
-                min_loss = test_loss
+            if val_loss < min_loss:
+                min_loss = val_loss
                 bad_epochs = 0
                 torch.save(self.state_dict(), MODEL_PATH)
                 print(f"saved : {min_loss}")
@@ -113,7 +135,11 @@ class Net(nn.Module):
                 if bad_epochs >= patience:
                     break
 
-        print(f"best loss : {min_loss}")
+        print(f"best validation loss : {min_loss}")
+        self.load_model()
+        _, metrics = self.evaluate(DataLoader(test_data, batch_size=batch_size))
+        print(f"Test: {format_metrics(metrics)}")
+        return metrics
 
     @torch.no_grad()
     def evaluate(self, loader, criterion=None):
@@ -137,10 +163,12 @@ class Net(nn.Module):
         }
         return total_loss / total, metrics
 
-    def eval_model(self):
-        _, test_data, _ = self.split_dataset(dataload.TrainDataset())
+    def eval_model(self, start=None, end=None):
+        """학습 때와 같은 기간을 주면 모델 선택에 쓰지 않은 테스트 구간으로 평가한다."""
+        _, _, test_data, _ = self.split_dataset(dataload.TrainDataset(start, end))
         _, metrics = self.evaluate(DataLoader(test_data, batch_size=32))
-        print(format_metrics(metrics))
+        print(f"Test: {format_metrics(metrics)}")
+        return metrics
 
     def predict(self, data, threshold: float = 0.5):
         with torch.no_grad():
@@ -158,11 +186,13 @@ def format_metrics(metrics: dict) -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="낙상 감지 모델 학습/평가")
     parser.add_argument("command", choices=["train", "eval"])
+    parser.add_argument("--start", help='데이터 기간 시작 (DB_TIMEZONE 기준, 예: "2024-05-01")')
+    parser.add_argument("--end", help="데이터 기간 끝 (포함하지 않음)")
     args = parser.parse_args()
 
     model = Net()
     if args.command == "train":
-        model.train_model()
+        model.train_model(args.start, args.end)
     else:
         model.load_model()
-        model.eval_model()
+        model.eval_model(args.start, args.end)
