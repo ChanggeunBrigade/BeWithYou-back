@@ -1,0 +1,10 @@
+# 오래된 센서 데이터 정리 (src/retention.py). bewithyou-retention.timer가 매일 실행한다.
+[Unit]
+Description=BeWithYou old sensor data cleanup
+After=docker.service
+
+[Service]
+Type=oneshot
+User=pi
+WorkingDirectory=/home/pi/BeWithYou-back
+ExecStart=/home/pi/.local/bin/uv run src/retention.py

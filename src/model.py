@@ -1,4 +1,5 @@
 import argparse
+import time
 
 import numpy as np
 import torch
@@ -26,6 +27,8 @@ class Net(nn.Module):
         # 학습 데이터에서 계산한 채널별 평균/표준편차. state_dict에 함께 저장되어 추론에도 쓰인다
         self.register_buffer("mean", torch.zeros(N_FEATURES, 1))
         self.register_buffer("std", torch.ones(N_FEATURES, 1))
+        # 낙상으로 판정할 확률 임계값. 학습이 끝나면 검증 구간에서 골라 함께 저장한다
+        self.register_buffer("threshold", torch.tensor(0.5))
         self.cnn = nn.Conv1d(N_FEATURES, 200, kernel_size=3)
         self.lstm = nn.LSTM(200, 300, 3, batch_first=True)
         self.fc = nn.Linear(300, 1)
@@ -137,6 +140,10 @@ class Net(nn.Module):
 
         print(f"best validation loss : {min_loss}")
         self.load_model()
+        # pos_weight로 학습한 모델은 양성 쪽으로 기울어 있으므로 0.5 대신 검증 구간에서 고른다
+        self.threshold.fill_(self.choose_threshold(val_loader))
+        torch.save(self.state_dict(), MODEL_PATH)
+        print(f"threshold : {self.threshold.item():.2f}")
         _, metrics = self.evaluate(DataLoader(test_data, batch_size=batch_size))
         print(f"Test: {format_metrics(metrics)}")
         return metrics
@@ -150,7 +157,7 @@ class Net(nn.Module):
             logits = self(x)
             if criterion is not None:
                 total_loss += criterion(logits, y).item() * len(y)
-            pred = (logits > 0).float()
+            pred = (torch.sigmoid(logits) > self.threshold).float()
             tp += int(((pred == 1) & (y == 1)).sum())
             fp += int(((pred == 1) & (y == 0)).sum())
             fn += int(((pred == 0) & (y == 1)).sum())
@@ -170,13 +177,53 @@ class Net(nn.Module):
         print(f"Test: {format_metrics(metrics)}")
         return metrics
 
-    def predict(self, data, threshold: float = 0.5):
+    @torch.no_grad()
+    def choose_threshold(self, loader) -> float:
+        """
+        검증 구간에서 F1이 가장 높은 임계값. 같으면 더 높은(오탐이 적은) 값을 고른다.
+        검증 구간에 낙상이 없으면 0.5를 쓴다.
+        """
+        self.eval()
+        probs, labels = [], []
+        for x, y in loader:
+            probs.append(torch.sigmoid(self(x.to(device))).cpu())
+            labels.append(y)
+        probs, labels = torch.cat(probs), torch.cat(labels).bool()
+        if not labels.any():
+            return 0.5
+        best, best_f1 = 0.5, -1.0
+        for threshold in np.linspace(0.05, 0.95, 19):
+            pred = probs > threshold
+            tp = int((pred & labels).sum())
+            f1 = 2 * tp / max(int(pred.sum()) + int(labels.sum()), 1)
+            if f1 >= best_f1:
+                best, best_f1 = float(threshold), f1
+        return best
+
+    def predict(self, data, threshold: float | None = None):
+        threshold = self.threshold if threshold is None else threshold
         with torch.no_grad():
             return (torch.sigmoid(self(data.to(device))) > threshold).float()
 
     def load_model(self, path=None):
-        self.load_state_dict(torch.load(path or MODEL_PATH, map_location=device))
+        state = torch.load(path or MODEL_PATH, map_location=device)
+        # 임계값을 저장하기 전에 학습한 model.pt도 그대로 읽는다
+        state.setdefault("threshold", torch.tensor(0.5))
+        self.load_state_dict(state)
         self.to(device)
+
+
+@torch.no_grad()
+def benchmark(n: int = 50) -> float:
+    """윈도우 하나를 추론하는 평균 시간(초). 라즈베리파이에서 100ms 안에 끝나는지 확인용"""
+    net = Net().to(device).eval()
+    x = torch.randn(1, N_FEATURES, WINDOW_SIZE, device=device)
+    for _ in range(3):
+        net(x)
+    started = time.perf_counter()
+    for _ in range(n):
+        net(x)
+    return (time.perf_counter() - started) / n
 
 
 def format_metrics(metrics: dict) -> str:
@@ -185,13 +232,17 @@ def format_metrics(metrics: dict) -> str:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="낙상 감지 모델 학습/평가")
-    parser.add_argument("command", choices=["train", "eval"])
+    parser.add_argument("command", choices=["train", "eval", "bench"])
     parser.add_argument("--start", help='데이터 기간 시작 (DB_TIMEZONE 기준, 예: "2024-05-01")')
     parser.add_argument("--end", help="데이터 기간 끝 (포함하지 않음)")
     args = parser.parse_args()
 
     model = Net()
-    if args.command == "train":
+    if args.command == "bench":
+        print(
+            f"추론 1회 평균 {benchmark() * 1000:.1f}ms (torch 스레드 {torch.get_num_threads()}개)"
+        )
+    elif args.command == "train":
         model.train_model(args.start, args.end)
     else:
         model.load_model()

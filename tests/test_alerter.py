@@ -1,6 +1,6 @@
 import numpy as np
 
-from alerter import AUDIO_TOPIC, CSI_TOPIC, AlertThrottle, ProblemLog, SignalBuffer
+from alerter import AUDIO_TOPIC, CSI_TOPIC, AlertThrottle, FallVote, ProblemLog, SignalBuffer
 from features import N_FEATURES, N_SUBCARRIERS, WINDOW_SIZE
 
 START = 1_700_000_000.0
@@ -94,3 +94,12 @@ def test_alert_throttle():
     assert throttle.should_alert(100.0)
     assert not throttle.should_alert(110.0)
     assert throttle.should_alert(131.0)
+
+
+def test_single_false_positive_does_not_alert():
+    vote = FallVote(window=10, votes=5)
+    assert not vote.add(True)
+    assert not any(vote.add(False) for _ in range(9))
+    assert [vote.add(True) for _ in range(5)] == [False] * 4 + [True]
+    vote.reset()
+    assert not vote.add(True)

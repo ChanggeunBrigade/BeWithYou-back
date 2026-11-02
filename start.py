@@ -5,7 +5,13 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT / "src"))
+from settings import config  # noqa: E402
+
 SCRIPTS = ["src/audio.py", "src/esp.py"]
+# 라벨링용 카메라 수집은 데이터를 모으는 동안에만 켠다 (.env의 COLLECT_VIDEO=true)
+if config.get("COLLECT_VIDEO", "false").lower() in ("1", "true", "yes"):
+    SCRIPTS.append("src/opencv.py")
 RESTART_DELAY = 5  # 죽은 프로세스를 다시 띄우기 전 대기 시간(초)
 
 

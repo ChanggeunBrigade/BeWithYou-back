@@ -1,4 +1,3 @@
-import datetime
 import math
 
 import numpy as np
@@ -49,14 +48,9 @@ def make_tables(seconds=5.0, fall_from=None):
         )
         for i in range(int(seconds * 50))
     ]
-    # 라벨 시각은 기존과 같이 +9시간 보정된 벽시계 시각으로 저장되어 있다고 가정
-    base = datetime.datetime.fromtimestamp(START, datetime.UTC).replace(tzinfo=None)
-    base += datetime.timedelta(hours=9)
+    # Database.get_labels와 같이 (epoch 초, 라벨)
     label = [
-        (
-            base + datetime.timedelta(milliseconds=100 * i),
-            int(fall_from is not None and i / 10 >= fall_from),
-        )
+        (START + i / 10, int(fall_from is not None and i / 10 >= fall_from))
         for i in range(int(seconds * 10))
     ]
     return {"audio": audio, "tcpdump": csi, "label": label}
@@ -105,13 +99,43 @@ def test_windows_do_not_span_gaps():
         assert index[s + WINDOW_SIZE - 1] - index[s] == pd.Timedelta("1790ms")
 
 
-def test_timezone_aware_labels(monkeypatch):
-    tables = make_tables(seconds=5.0, fall_from=3.0)
-    kst = datetime.timezone(datetime.timedelta(hours=9))
-    tables["label"] = [(t.replace(tzinfo=kst), v) for t, v in tables["label"]]
+def test_sparse_labels_are_extended():
+    import pandas as pd
+
+    index = features.to_index(START + np.arange(1000) / 100)  # 10초
+    labeled = dataload.label_signal(index, [(START + 1.0, 0), (START + 9.0, 1)])
+    assert labeled.iloc[0] == 0.0  # 첫 라벨 앞쪽은 뒤 라벨로 채움
+    assert labeled.iloc[500] == 0.0  # 앞 라벨이 5초 이내
+    assert labeled.iloc[-1] == 1.0
+    assert labeled.index.equals(index)
+    far = dataload.label_signal(index, [(START + 100.0, 1)])
+    assert far.isna().all() and isinstance(far, pd.Series)
+
+
+def test_long_gap_is_not_interpolated(monkeypatch):
+    tables = make_tables(seconds=10.0)
+    # CSI가 3~6초 사이 3초 동안 끊긴 경우: 그 구간은 보간으로 지어내지 않는다
+    tables["tcpdump"] = [r for r in tables["tcpdump"] if not 3.0 <= r[2]["ts"] - START < 6.0]
     monkeypatch.setattr(dataload.database, "Database", lambda: FakeDatabase(tables))
-    dataset = dataload.TrainDataset()
-    assert dataset.y[0] == 0.0 and dataset.y[-1] == 1.0
+    dataset = dataload.TrainDataset(stride=1)
+    ts = dataset.index.asi8 / 1e9 - START
+    assert not ((ts > 3.1) & (ts < 5.9)).any()
+    for s in dataset.starts:
+        assert not (ts[s] < 3.0 < ts[s + WINDOW_SIZE - 1])
+
+
+def test_short_gap_is_interpolated():
+    csi = features.resample_csi(
+        [START + 0.005, START + 0.105], [np.zeros(2 * N_SUBCARRIERS), np.ones(2 * N_SUBCARRIERS)]
+    )
+    assert len(csi) == 11
+    assert np.isclose(csi["amplitudes_0"].iloc[5], 0.5)
+
+
+def test_grid_does_not_span_long_gaps():
+    # 하루 간격의 두 레코드가 864만 행짜리 격자를 만들지 않는다
+    csi = features.resample_csi([START, START + 86400], np.zeros((2, 2 * N_SUBCARRIERS)))
+    assert len(csi) == 2
 
 
 def test_legacy_raw_audio_becomes_rms(make_dataset):

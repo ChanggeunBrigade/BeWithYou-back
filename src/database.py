@@ -1,10 +1,11 @@
+import datetime
 from collections.abc import Iterator
 
 import psycopg2
 import psycopg2.extensions
 from psycopg2 import sql
 
-from settings import SingletonMeta, config
+from settings import DB_TIMEZONE, SingletonMeta, config
 
 FETCH_SIZE = 10_000  # 서버 쪽 커서에서 한 번에 가져오는 행 수
 
@@ -33,6 +34,21 @@ class Database(metaclass=SingletonMeta):
             user=config["PSQL_USER"],
             password=config["PSQL_PASS"],
         )
+        self.migrate()
+
+    def migrate(self):
+        """
+        예전에 만든 DB에도 label.ts(epoch 초) 컬럼을 추가하고, 비어 있으면 라벨을 붙인
+        opencv 프레임의 ts로 채운다. 라벨 시각을 `time` 컬럼(DB 시간대에 따라 해석이
+        달라짐) 대신 신호와 같은 epoch 기준으로 맞추기 위함이다.
+        """
+        with self.conn.cursor() as cursor:
+            cursor.execute("alter table label add column if not exists ts double precision")
+            cursor.execute(
+                "update label l set ts = (o.data->>'ts')::float8 from opencv o"
+                " where l.ts is null and o.time = l.time and o.data ? 'ts'"
+            )
+        self.conn.commit()
 
     def __del__(self):
         try:
@@ -73,11 +89,18 @@ class Database(metaclass=SingletonMeta):
         ).format(where)
         return self._iter(query, params)
 
-    def get_labels(self, start=None, end=None) -> list[tuple]:
+    def get_labels(self, start=None, end=None) -> list[tuple[float, int]]:
+        """
+        (epoch 초, 라벨) 목록. ts가 없는 라벨(프레임이 이미 지워진 예전 라벨)만
+        `time`을 DB_TIMEZONE 기준 시각으로 보고 epoch로 바꾼다.
+        """
         where, params = time_filter(start, end)
-        query = sql.SQL("select time, label from label where {} order by time").format(where)
+        query = sql.SQL(
+            "select coalesce(ts, extract(epoch from time at time zone %(tz)s)::float8), label"
+            " from label where {} order by time"
+        ).format(where)
         with self.conn.cursor() as cursor:
-            cursor.execute(query, params)
+            cursor.execute(query, {**params, "tz": DB_TIMEZONE})
             return cursor.fetchall()
 
     def get_frame_times(self, start=None, end=None) -> list:
@@ -94,12 +117,36 @@ class Database(metaclass=SingletonMeta):
             row = cursor.fetchone()
         return row[0] if row else None
 
-    def insert_label(self, ts, value):
-        cursor: psycopg2.extensions.cursor = self.conn.cursor()
-        cursor.execute(
-            "insert into label (time, label) values (%s, %s) "
-            "on conflict (time) do update set label = excluded.label",
-            (ts, value),
-        )
+    def insert_labels(self, frames: list[tuple], value: int):
+        """frames: (opencv time, 프레임 ts) 목록에 같은 라벨을 붙인다."""
+        with self.conn.cursor() as cursor:
+            cursor.executemany(
+                "insert into label (time, ts, label) values (%s, %s, %s) "
+                "on conflict (time) do update set label = excluded.label, ts = excluded.ts",
+                [(time, ts, value) for time, ts in frames],
+            )
         self.conn.commit()
-        cursor.close()
+
+    def delete_old(self, table: str, days: float, keep_labeled_seconds: float | None) -> int:
+        """
+        `time`이 days일보다 오래된 행을 지운다.
+
+        :param keep_labeled_seconds: None이 아니면 라벨 앞뒤 이 초 이내의 행은 남긴다
+            (학습에 쓰는 신호 데이터 보존)
+        :return: 지운 행 수
+        """
+        query = sql.SQL("delete from {} t where t.time < localtimestamp - %(age)s").format(
+            sql.Identifier(table)
+        )
+        params = {"age": datetime.timedelta(days=days)}
+        if keep_labeled_seconds is not None:
+            query += sql.SQL(
+                " and not exists (select 1 from label l"
+                " where l.time between t.time - %(margin)s and t.time + %(margin)s)"
+            )
+            params["margin"] = datetime.timedelta(seconds=keep_labeled_seconds)
+        with self.conn.cursor() as cursor:
+            cursor.execute(query, params)
+            deleted = cursor.rowcount
+        self.conn.commit()
+        return deleted

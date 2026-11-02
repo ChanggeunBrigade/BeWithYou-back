@@ -7,5 +7,11 @@ CREATE INDEX IF NOT EXISTS audio_time_idx ON audio (time);
 CREATE INDEX IF NOT EXISTS tcpdump_time_idx ON tcpdump (time);
 CREATE INDEX IF NOT EXISTS opencv_time_idx ON opencv (time);
 
--- labeler.py가 opencv 프레임의 time 값을 그대로 키로 사용한다 (0: 평상시, 1: 낙상)
-CREATE TABLE IF NOT EXISTS label (time timestamp PRIMARY KEY, label smallint NOT NULL);
+-- labeler.py가 opencv 프레임의 time 값을 그대로 키로 사용한다 (0: 평상시, 1: 낙상).
+-- ts는 프레임의 epoch 초로, 학습 때 신호와 시각을 맞추는 데 쓴다 (DB 시간대와 무관).
+-- 예전에 만든 DB는 database.Database가 접속할 때 ts 컬럼을 추가하고 채운다.
+CREATE TABLE IF NOT EXISTS label (
+    time timestamp PRIMARY KEY,
+    ts double precision,
+    label smallint NOT NULL
+);
