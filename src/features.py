@@ -13,7 +13,10 @@ import pandas as pd
 N_SUBCARRIERS = 64
 RESAMPLE_RATE = "10ms"  # 모델 입력 한 스텝의 간격
 WINDOW_SIZE = 180  # 10ms * 180 = 1.8초
-INTERPOLATE_LIMIT = 500  # 결측 보간 최대 스텝 수
+# 센서 결측을 직선 보간으로 메우는 최대 스텝 수 (200ms).
+# 이보다 긴 결측은 지어내지 않고 비워 두며, 그 구간에 걸친 윈도우는 쓰지 않는다.
+INTERPOLATE_LIMIT = 20
+STEP_NS = pd.Timedelta(RESAMPLE_RATE).value
 
 AMPLITUDE_COLUMNS = [f"amplitudes_{sub}" for sub in range(N_SUBCARRIERS)]
 PHASE_COLUMNS = [f"phases_{sub}" for sub in range(N_SUBCARRIERS)]
@@ -56,27 +59,54 @@ def audio_record_to_power(record: dict) -> float | None:
 
 
 def to_index(ts: Sequence[float]) -> pd.DatetimeIndex:
-    return pd.DatetimeIndex(pd.to_datetime(np.asarray(ts, dtype=np.float64), unit="s"))
+    # pandas 버전에 따라 해상도(us/ns)가 달라지지 않도록 ns로 고정한다 (asi8 // STEP_NS 계산)
+    index = pd.DatetimeIndex(pd.to_datetime(np.asarray(ts, dtype=np.float64), unit="s"))
+    return index.as_unit("ns")
+
+
+def _fill_grid(bins: np.ndarray, limit: int) -> np.ndarray:
+    """
+    데이터가 있는 격자 번호(정렬, 중복 없음)에 limit 스텝 이하인 빈칸만 채운 격자.
+
+    전체 기간을 10ms 격자로 펼치지 않으므로 데이터 사이에 긴 공백이 있어도
+    메모리 사용량은 실제 데이터 양에만 비례한다.
+    """
+    if len(bins) < 2:
+        return bins
+    gaps = np.diff(bins)
+    fill = (gaps > 1) & (gaps <= limit + 1)
+    extra = [np.arange(a + 1, b) for a, b in zip(bins[:-1][fill], bins[1:][fill])]
+    return np.sort(np.concatenate([bins, *extra])) if extra else bins
+
+
+def _to_grid(frame: pd.DataFrame) -> pd.DataFrame:
+    """레코드를 10ms 격자별로 평균내고 짧은 결측만 보간한다 (긴 결측은 행이 없다)."""
+    bins = frame.index.asi8 // STEP_NS
+    gridded = frame.groupby(bins).mean()
+    grid = _fill_grid(gridded.index.to_numpy(), INTERPOLATE_LIMIT)
+    gridded = gridded.reindex(grid).interpolate(limit_area="inside")
+    gridded.index = pd.DatetimeIndex(pd.to_datetime(grid * STEP_NS, unit="ns")).as_unit("ns")
+    return gridded
 
 
 def resample_audio(ts: Sequence[float], power: Sequence[float]) -> pd.DataFrame:
     """오디오 전력을 격자별로 평균낸 뒤 제곱근을 취해 RMS 채널을 만든다."""
-    frame = pd.DataFrame({"audio": np.asarray(power, dtype=np.float64)}, index=to_index(ts))
-    frame = np.sqrt(frame.sort_index().resample(RESAMPLE_RATE).mean())
-    return frame.interpolate(limit=INTERPOLATE_LIMIT)
+    frame = pd.DataFrame({"audio": np.asarray(power, dtype=np.float32)}, index=to_index(ts))
+    return np.sqrt(_to_grid(frame))
 
 
 def resample_csi(ts: Sequence[float], values: Sequence[np.ndarray]) -> pd.DataFrame:
     """values: 레코드마다 csi_record_to_values 결과 (또는 (N, 128) 배열)"""
-    values = np.asarray(values, dtype=np.float64).reshape(-1, len(CSI_COLUMNS))
-    frame = pd.DataFrame(values, columns=CSI_COLUMNS, index=to_index(ts))
-    return frame.sort_index().resample(RESAMPLE_RATE).mean().interpolate(limit=INTERPOLATE_LIMIT)
+    values = np.asarray(values, dtype=np.float32).reshape(-1, len(CSI_COLUMNS))
+    return _to_grid(pd.DataFrame(values, columns=CSI_COLUMNS, index=to_index(ts)))
 
 
 def build_signal_frame(audio: pd.DataFrame, csi: pd.DataFrame) -> pd.DataFrame:
-    """오디오와 CSI 격자를 합쳐 모델 채널 순서의 프레임을 만든다."""
-    signal = audio.join(csi, how="outer").interpolate(limit=INTERPOLATE_LIMIT).dropna()
-    return signal[FEATURE_COLUMNS]
+    """
+    오디오와 CSI 격자를 합쳐 모델 채널 순서의 프레임을 만든다.
+    두 스트림이 모두 있는 격자만 남긴다 (한쪽이 비는 구간을 보간으로 지어내지 않음).
+    """
+    return audio.join(csi, how="inner").dropna()[FEATURE_COLUMNS]
 
 
 def contiguous_window_starts(index: pd.DatetimeIndex, window: int, stride: int) -> np.ndarray:

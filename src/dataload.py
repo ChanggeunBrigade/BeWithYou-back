@@ -6,7 +6,6 @@ from torch.utils.data import Dataset
 import database
 from features import (
     FEATURE_COLUMNS,
-    INTERPOLATE_LIMIT,
     RESAMPLE_RATE,
     WINDOW_SIZE,
     build_signal_frame,
@@ -14,11 +13,13 @@ from features import (
     csi_record_to_values,
     resample_audio,
     resample_csi,
+    to_index,
 )
-from settings import DB_TIMEZONE
 
 # 윈도우(180스텝) 안에서 낙상 라벨이 이 스텝 수를 넘으면 낙상 윈도우로 본다 (0.3초)
 LABEL_THRESHOLD = 30
+# 라벨을 앞뒤로 이어 붙이는 최대 스텝 수 (5초). 프레임마다 라벨을 달지 않아도 되게 한다
+LABEL_FILL = pd.Timedelta(RESAMPLE_RATE) * 500
 
 
 def build_audio_frame(power_rows: list[tuple[int, float]], step: float) -> pd.DataFrame:
@@ -40,23 +41,28 @@ def build_csi_frame(csi_rows) -> pd.DataFrame:
     return resample_csi(ts, values)
 
 
-def to_utc_naive(index: pd.DatetimeIndex) -> pd.DatetimeIndex:
-    """DB 시각을 신호 데이터와 같은 UTC 기준 naive datetime으로 맞춘다."""
-    if index.tz is None:
-        index = index.tz_localize(DB_TIMEZONE)
-    return index.tz_convert("UTC").tz_localize(None)
+def label_signal(index: pd.DatetimeIndex, label_rows: list[tuple[float, int]]) -> pd.Series:
+    """
+    신호 격자의 각 시점에 라벨을 붙인다. 가장 최근 라벨(LABEL_FILL 이내)을 쓰고, 없으면
+    다음 라벨(LABEL_FILL 이내)을 쓰며, 둘 다 없으면 NaN이다.
 
-
-def build_label_frame(label_rows: list) -> pd.DataFrame:
-    label = pd.DataFrame(label_rows, columns=["time", "label"])
-    label.index = to_utc_naive(pd.DatetimeIndex(label.pop("time")))
-    # 0/1 분류 데이터이므로 interpolate나 mean 대신 ffill/bfill만 사용한다
-    return (
-        label.sort_index()
-        .resample(RESAMPLE_RATE)
-        .ffill(limit=INTERPOLATE_LIMIT)
-        .bfill(limit=INTERPOLATE_LIMIT)
-    )
+    :param label_rows: Database.get_labels 결과 (epoch 초, 라벨)
+    """
+    labels = pd.DataFrame(
+        {
+            "time": to_index([row[0] for row in label_rows]),
+            "label": np.asarray([row[1] for row in label_rows], dtype=np.float32),
+        }
+    ).sort_values("time")
+    grid = pd.DataFrame({"time": index})
+    # 0/1 분류 데이터이므로 interpolate나 mean 대신 앞/뒤 라벨만 이어 붙인다
+    merged = [
+        pd.merge_asof(grid, labels, on="time", direction=direction, tolerance=LABEL_FILL)
+        for direction in ("backward", "forward")
+    ]
+    result = merged[0]["label"].fillna(merged[1]["label"])
+    result.index = index
+    return result
 
 
 class TrainDataset(Dataset):
@@ -74,7 +80,8 @@ class TrainDataset(Dataset):
             build_audio_frame(self.db.get_audio_power(step, start, end), step),
             build_csi_frame(self.db.iter_csi(start, end)),
         )
-        data = signal.join(build_label_frame(self.db.get_labels(start, end))).dropna()
+        labels = label_signal(signal.index, self.db.get_labels(start, end))
+        data = signal.assign(label=labels).dropna()
         self.index = data.index
 
         # 윈도우를 미리 잘라 두지 않고 전체 시계열 하나만 들고 있다가 필요할 때 잘라 쓴다

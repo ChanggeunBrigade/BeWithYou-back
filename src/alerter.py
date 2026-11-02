@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import socket
 import time
 from collections import deque
 
@@ -21,6 +23,8 @@ from features import (
 )
 from settings import (
     ALERT_COOLDOWN,
+    ALERT_VOTES,
+    ALERT_WINDOW,
     KAFKA_BOOTSTRAP,
     MQTT_HOST,
     MQTT_PASS,
@@ -162,17 +166,44 @@ class AlertThrottle:
         return True
 
 
+class FallVote:
+    """최근 window번의 추론 중 votes번 이상 낙상일 때만 낙상으로 본다."""
+
+    def __init__(self, window: int = ALERT_WINDOW, votes: int = ALERT_VOTES):
+        self.votes = votes
+        self.history: deque[bool] = deque(maxlen=window)
+
+    def add(self, fall: bool) -> bool:
+        self.history.append(fall)
+        return sum(self.history) >= self.votes
+
+    def reset(self):
+        self.history.clear()
+
+
 def connect_mqtt() -> mqtt_client.Client:
     client = mqtt_client.Client(
         mqtt_client.CallbackAPIVersion.VERSION2,
-        client_id="alerter",
+        # 같은 ID로 접속하는 다른 클라이언트와 서로 끊어 내지 않도록 호스트/프로세스를 붙인다
+        client_id=f"alerter-{socket.gethostname()}-{os.getpid()}",
         protocol=mqtt_client.MQTTv5,
     )
     if MQTT_USER:
         client.username_pw_set(MQTT_USER, MQTT_PASS)
     if MQTT_TLS:
         client.tls_set()
-    client.connect(MQTT_HOST, port=MQTT_PORT)
+    if not MQTT_TLS or not MQTT_USER:
+        logger.warning(
+            "MQTT 알림이 %s 전송됩니다. 누구나 알림을 엿보거나 가짜 알림을 보낼 수 있으니 "
+            ".env에 MQTT_TLS=true와 MQTT_USER/MQTT_PASS를 설정하세요.",
+            "암호화 없이" if not MQTT_TLS else "인증 없이",
+        )
+    client.on_connect = lambda *args: logger.info(
+        "MQTT 브로커 연결됨 (%s:%s)", MQTT_HOST, MQTT_PORT
+    )
+    # 브로커가 잠시 안 될 때 프로세스를 죽이지 않고 백그라운드에서 계속 다시 접속한다
+    client.reconnect_delay_set(min_delay=1, max_delay=30)
+    client.connect_async(MQTT_HOST, port=MQTT_PORT)
     client.loop_start()
     return client
 
@@ -195,6 +226,7 @@ def main():
 
     alerter = connect_mqtt()
     throttle = AlertThrottle()
+    vote = FallVote()
     buffer = SignalBuffer()
     problems = ProblemLog()
     last_inference = 0.0
@@ -220,15 +252,23 @@ def main():
         if window is None:
             if buffer.skip_reason is not None:
                 problems.count(f"추론 건너뜀: {buffer.skip_reason}")
+                vote.reset()  # 끊긴 데이터 앞뒤의 판정을 이어서 세지 않는다
             continue
         try:
             predicted = classifier.predict(torch.from_numpy(window).unsqueeze(0))
         except Exception as e:
             problems.count(f"추론 오류: {e!r}")
             continue
-        if predicted.item() == 1 and throttle.should_alert(time.monotonic()):
-            alerter.publish(MQTT_TOPIC, b"alert", qos=1)
-            logger.info("낙상 감지 알림 전송")
+        elapsed = time.monotonic() - last_inference
+        if elapsed > INFERENCE_INTERVAL:
+            problems.count(f"추론이 {INFERENCE_INTERVAL * 1000:g}ms보다 오래 걸림")
+        if vote.add(predicted.item() == 1) and throttle.should_alert(time.monotonic()):
+            info = alerter.publish(MQTT_TOPIC, b"alert", qos=1)
+            if info.rc == mqtt_client.MQTT_ERR_SUCCESS:
+                logger.info("낙상 감지 알림 전송")
+            else:
+                # QoS 1 메시지는 paho가 보관했다가 다시 접속하면 보낸다
+                logger.error("낙상 감지 알림: 브로커 연결 끊김, 재접속 후 전송 (rc=%s)", info.rc)
 
 
 if __name__ == "__main__":

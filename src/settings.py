@@ -21,6 +21,10 @@ MQTT_TLS = config.get("MQTT_TLS", "false").lower() in ("1", "true", "yes")
 MQTT_TOPIC = config.get("MQTT_TOPIC", "alert")
 # 낙상 상태가 이어지는 동안 알림을 반복해서 보내지 않도록 하는 최소 간격(초)
 ALERT_COOLDOWN = float(config.get("ALERT_COOLDOWN", "30"))
+# 최근 ALERT_WINDOW번(100ms 간격) 추론 중 ALERT_VOTES번 이상 낙상이어야 알림을 보낸다.
+# 한 번의 오탐으로 알림이 가지 않게 한다 (기본: 최근 1초 중 0.5초)
+ALERT_WINDOW = int(config.get("ALERT_WINDOW", "10"))
+ALERT_VOTES = int(config.get("ALERT_VOTES", "5"))
 
 
 class SingletonMeta(type):
